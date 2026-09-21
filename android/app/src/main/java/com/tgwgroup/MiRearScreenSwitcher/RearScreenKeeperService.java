@@ -84,7 +84,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private boolean monitoringPaused = false;
 
     // V2.4: 持续唤醒背屏（防止自动熄屏）
-    private static final long WAKEUP_INTERVAL_MS = 100; // 持续发送，每0.1秒唤醒一次（对熄屏几乎无感）
+    private static final long WAKEUP_INTERVAL_MS = 2000; // 持续发送，每2秒唤醒一次（原100ms过于频繁，每次都会fork一个shell进程）
+    private static final long WAKELOCK_SAFETY_TIMEOUT_MS = 10 * 60 * 1000; // WakeLock安全网超时，由监控循环周期性续期
     private boolean keepScreenOnEnabled = true; // 默认启用背屏常亮
 
     public static void pauseMonitoring() {
@@ -251,8 +252,9 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                         PowerManager.SCREEN_BRIGHT_WAKE_LOCK, // 移除ACQUIRE_CAUSES_WAKEUP避免唤醒主屏
                         "MRSS::RearScreenKeeper");
 
-                // 持续持有WakeLock（不设置超时）
-                wakeLock.acquire();
+                // 设置超时作为安全网，避免release()因异常被跳过导致WakeLock永久持有
+                // 监控循环（wakeupRunnable）会周期性调用renewWakeLock()续期
+                wakeLock.acquire(WAKELOCK_SAFETY_TIMEOUT_MS);
 
             } else {
             }
@@ -335,6 +337,11 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
     private final Runnable wakeupRearScreenRunnable = new Runnable() {
         @Override
         public void run() {
+            // 续期WakeLock安全网超时，避免监控期间超时被系统释放
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.acquire(WAKELOCK_SAFETY_TIMEOUT_MS);
+            }
+
             // 检查开关状态
             if (keepScreenOnEnabled && taskService != null) {
                 try {

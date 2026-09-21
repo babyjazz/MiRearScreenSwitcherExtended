@@ -80,17 +80,17 @@ public class MainActivity extends FlutterActivity {
                 bindTaskService();
                 
                 // 如果重连失败，2秒后再次尝试
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this, 30);
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this, 2000);
             } else {
             }
         }
     };
-    
+
     /**
      * 安排TaskService重连
      */
     private void scheduleReconnectTaskService() {
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(reconnectTaskServiceRunnable, 30);
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(reconnectTaskServiceRunnable, 2000);
     };
     
     private final Shizuku.OnRequestPermissionResultListener requestPermissionResultListener = 
@@ -236,7 +236,7 @@ public class MainActivity extends FlutterActivity {
                 
                 if (notifTaskId != null) {
                     // 步骤5: 移动到背屏
-                    String moveCmd = "service call activity_task 50 i32 " + notifTaskId + " i32 1";
+                    String moveCmd = "am display move-stack " + notifTaskId + " 1";
                     taskService.executeShellCommand(moveCmd);
                     Thread.sleep(40);
                     

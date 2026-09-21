@@ -42,7 +42,7 @@ public class RearScreenNotificationActivity extends Activity {
     private android.os.Handler wakeupHandler;
     private Runnable wakeupRunnable;
     private boolean isWakeupRunning = false;
-    
+
     // 广播接收器：接收打断命令
     private android.content.BroadcastReceiver interruptReceiver = new android.content.BroadcastReceiver() {
         @Override
@@ -639,7 +639,9 @@ public class RearScreenNotificationActivity extends Activity {
             Log.w(TAG, String.format("[%tT.%tL] ⚠️ 这是旧实例，跳过恢复操作", destroyTime, destroyTime));
             return;
         }
-        
+        // 清除静态引用，避免已销毁的实例（及其View树）被静态字段持续持有导致内存泄漏
+        currentInstance = null;
+
         // 通知动画管理器：通知动画结束
         boolean shouldRestore = RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
         
@@ -1026,7 +1028,7 @@ public class RearScreenNotificationActivity extends Activity {
         }
         
         isWakeupRunning = true;
-        
+
         wakeupRunnable = new Runnable() {
             @Override
             public void run() {
@@ -1053,9 +1055,9 @@ public class RearScreenNotificationActivity extends Activity {
                     Log.w(TAG, "⚠️ TaskService is null, skipping wakeup");
                 }
                 
-                // 100ms后继续
+                // 2秒后继续（原100ms过于频繁，每次都会fork一个shell进程）
                 if (wakeupHandler != null) {
-                    wakeupHandler.postDelayed(this, 100);
+                    wakeupHandler.postDelayed(this, 2000);
                 }
             }
         };

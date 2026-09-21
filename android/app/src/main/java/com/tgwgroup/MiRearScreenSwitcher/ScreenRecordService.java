@@ -59,7 +59,7 @@ public class ScreenRecordService extends Service {
     private String currentVideoPath;
     private int recordPid = -1; // 录屏进程ID
     private Handler wakeupHandler = new Handler(android.os.Looper.getMainLooper());
-    private static final long WAKEUP_INTERVAL_MS = 100; // 每100ms唤醒一次背屏
+    private static final long WAKEUP_INTERVAL_MS = 2000; // 每2秒唤醒一次背屏（原100ms过于频繁，每次都会fork一个shell进程）
     
     // TaskService
     private ITaskService taskService;

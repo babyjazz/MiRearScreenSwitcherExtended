@@ -183,10 +183,7 @@ public class ChargingService extends Service {
                 
                 int batteryLevel = getBatteryLevel(context);
                 Log.d(TAG, "🔌 Power connected, battery: " + batteryLevel + "%");
-                
-                // 记录触发时间
-                lastChargingAnimationTime = currentTime;
-                
+
                 // 通知动画管理器：开始充电动画（返回被打断的旧动画）
                 RearAnimationManager.AnimationType oldAnim = RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.CHARGING);
                 
@@ -362,7 +359,11 @@ public class ChargingService extends Service {
                 return;
             }
         }
-        
+
+        // 只在确认TaskService可用、动画确实要开始播放时才记录冷却时间戳，
+        // 避免因TaskService未就绪等临时失败而误锁住后续6秒内的重试
+        lastChargingAnimationTime = System.currentTimeMillis();
+
         acquireWakeLock(8000);
         try {
             // 步骤1: 检查背屏是否有投送的应用
@@ -444,7 +445,7 @@ public class ChargingService extends Service {
                 
                 if (chargingTaskId != null) {
                     // 4.3: 移动到背屏
-                    String moveCmd = "service call activity_task 50 i32 " + chargingTaskId + " i32 1";
+                    String moveCmd = "am display move-stack " + chargingTaskId + " 1";
                     taskService.executeShellCommand(moveCmd);
                     Thread.sleep(40); // 等待移动完成
                     
@@ -578,7 +579,7 @@ public class ChargingService extends Service {
                 }
                 
                 // 100ms后继续
-                wakeupHandler.postDelayed(this, 100);
+                wakeupHandler.postDelayed(this, 2000);
             }
         };
         

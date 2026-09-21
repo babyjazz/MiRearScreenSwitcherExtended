@@ -206,7 +206,7 @@
             android:hardwareAccelerated="true">
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
-        
+
         <!-- V2.4: 背屏通知显示Activity -->
         <activity
             android:name=".RearScreenNotificationActivity"

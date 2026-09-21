@@ -34,6 +34,8 @@ public class RearScreenChargingActivity extends Activity {
     private static final String TAG = "RearScreenChargingActivity";
     private int rearTaskId = -1;  // 背屏投送的app的taskId，-1表示没有投送app
     private boolean autoFinishScheduled = false; // 是否已安排自动销毁
+    private View chargingContainer; // 背屏内容根View，用于安排/取消自动关闭
+    private Runnable pendingFinishRunnable; // 当前排队的自动关闭任务，复用实例时需先取消旧的
     
     // 静态实例追踪，防止旧实例干扰新实例
     private static volatile RearScreenChargingActivity currentInstance = null;
@@ -132,46 +134,13 @@ public class RearScreenChargingActivity extends Activity {
         
         
         long afterGetIntentTime = System.currentTimeMillis();
-        Log.d(TAG, String.format("[%tT.%tL] ⚡ Intent数据: Battery=%d%%, rearTaskId=%d", 
+        Log.d(TAG, String.format("[%tT.%tL] ⚡ Intent数据: Battery=%d%%, rearTaskId=%d",
             afterGetIntentTime, afterGetIntentTime, level, rearTaskId));
-        
-        // V3.5: 获取全屏液体视图
-        LightningShapeView fullScreenLiquid = findViewById(R.id.full_screen_liquid);
-        TextView batteryText = findViewById(R.id.battery_text);
-        View chargingContainer = findViewById(R.id.charging_container);
-        
-        // 设置全屏液体模式
-        fullScreenLiquid.setFullScreenMode(true);
-        
-        // 应用安全区域margin到电量数字
-        applySafeAreaToText(batteryText);
-        
-        // 设置电量文字
-        batteryText.setText(level + "%");
-        
-        // 启动全屏液体填充动画（非线性，从0到电量百分比）
-        startFullScreenLiquidAnimation(fullScreenLiquid, level);
-        
-        // 启动电量数字淡入动画
-        startCenterTextAnimation(batteryText);
-        
-        long animationStartTime = System.currentTimeMillis();
-        
-        // V3.5: 检查充电常亮开关
-        boolean chargingAlwaysOn = getSharedPreferences("mrss_settings", MODE_PRIVATE)
-            .getBoolean("charging_always_on_enabled", false);
-        
-        if (chargingAlwaysOn) {
-            Log.d(TAG, String.format("[%tT.%tL] 🎬 动画已启动，充电常亮模式，不自动关闭", 
-                animationStartTime, animationStartTime));
-        } else {
-            Log.d(TAG, String.format("[%tT.%tL] 🎬 动画已启动，8秒后自动关闭", 
-                animationStartTime, animationStartTime));
-            // 8秒后自动关闭
-            chargingContainer.postDelayed(this::finish, 8000);
-        }
-        autoFinishScheduled = true;
-        
+
+        chargingContainer = findViewById(R.id.charging_container);
+
+        applyChargingState(level);
+
         long onCreateEndTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] ✅ onCreate完成 (总耗时%dms)", 
             onCreateEndTime, onCreateEndTime, onCreateEndTime - onCreateStartTime));
@@ -198,7 +167,69 @@ public class RearScreenChargingActivity extends Activity {
         
         // 测试代码已移除
     }
-    
+
+    /**
+     * android:launchMode="singleInstance"：若上一轮动画尚未finish()（常亮模式/被系统杀掉未清理等），
+     * 新的充电事件不会触发onCreate，而是复用现有实例并回调onNewIntent。
+     * 必须在这里重新应用电量/动画状态，否则会静默什么都不显示。
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+
+        int level = intent.getIntExtra("batteryLevel", 0);
+        rearTaskId = intent.getIntExtra("rearTaskId", -1);
+        autoFinishScheduled = false;
+
+        int displayId = 0;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            displayId = getDisplay() != null ? getDisplay().getDisplayId() : 0;
+        }
+        Log.d(TAG, String.format("🔁 onNewIntent复用实例: displayId=%d, battery=%d%%", displayId, level));
+
+        if (displayId != 1 || chargingContainer == null) {
+            // 仍在主屏占位或内容尚未初始化，等待被移动到背屏后走onResume补偿逻辑
+            return;
+        }
+
+        applyChargingState(level);
+    }
+
+    /**
+     * 显示/重置充电动画内容：设置电量、启动液体填充动画、安排（或不安排）自动关闭。
+     * 供onCreate首次展示和onNewIntent复用实例时共用。
+     */
+    private void applyChargingState(int level) {
+        LightningShapeView fullScreenLiquid = findViewById(R.id.full_screen_liquid);
+        TextView batteryText = findViewById(R.id.battery_text);
+
+        fullScreenLiquid.setFullScreenMode(true);
+        applySafeAreaToText(batteryText);
+        batteryText.setText(level + "%");
+
+        startFullScreenLiquidAnimation(fullScreenLiquid, level);
+        startCenterTextAnimation(batteryText);
+
+        // 取消上一轮可能还排队的自动关闭任务，避免提前把新一轮动画关掉
+        if (pendingFinishRunnable != null) {
+            chargingContainer.removeCallbacks(pendingFinishRunnable);
+            pendingFinishRunnable = null;
+        }
+
+        boolean chargingAlwaysOn = getSharedPreferences("mrss_settings", MODE_PRIVATE)
+            .getBoolean("charging_always_on_enabled", false);
+
+        if (chargingAlwaysOn) {
+            Log.d(TAG, "🎬 动画已启动，充电常亮模式，不自动关闭");
+        } else {
+            Log.d(TAG, "🎬 动画已启动，8秒后自动关闭");
+            pendingFinishRunnable = this::finish;
+            chargingContainer.postDelayed(pendingFinishRunnable, 8000);
+        }
+        autoFinishScheduled = true;
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -263,7 +294,9 @@ public class RearScreenChargingActivity extends Activity {
             Log.w(TAG, String.format("[%tT.%tL] ⚠️ 这是旧实例，跳过恢复操作", destroyTime, destroyTime));
             return;
         }
-        
+        // 清除静态引用，避免已销毁的实例（及其View树）被静态字段持续持有导致内存泄漏
+        currentInstance = null;
+
         // 通知动画管理器：充电动画结束
         boolean shouldRestore = RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING);
         
@@ -317,7 +350,7 @@ public class RearScreenChargingActivity extends Activity {
                 
                 // 步骤3: 移动投送app回到背屏
                 taskService.executeShellCommand(
-                    "service call activity_task 50 i32 " + taskId + " i32 1"
+                    "am display move-stack " + taskId + " 1"
                 );
                 
                 // 步骤4: 再等待200ms确保app已移动
@@ -327,7 +360,7 @@ public class RearScreenChargingActivity extends Activity {
                 
                 // 步骤5: 再次确认移动（双重保险）
                 taskService.executeShellCommand(
-                    "service call activity_task 50 i32 " + taskId + " i32 1"
+                    "am display move-stack " + taskId + " 1"
                 );
                 
                 // 步骤6: 等待300ms让app完全显示
@@ -348,7 +381,7 @@ public class RearScreenChargingActivity extends Activity {
                 MainActivity mainActivity = MainActivity.getCurrentInstance();
                 if (mainActivity != null) {
                     mainActivity.executeShellCommand(
-                        "service call activity_task 50 i32 " + taskId + " i32 1"
+                        "am display move-stack " + taskId + " 1"
                     );
                 }
             }

@@ -25,7 +25,7 @@ import rikka.shizuku.Shizuku;
 public class AlwaysWakeUpService extends Service {
     private static final String TAG = "AlwaysWakeUpService";
     private static final int NOTIFICATION_ID = 1001; // 与其他Service共用ID
-    private static final int WAKEUP_INTERVAL_MS = 100; // 100ms间隔
+    private static final int WAKEUP_INTERVAL_MS = 2000; // 2秒间隔（原100ms过于频繁，每次都会fork一个shell进程）
     
     private ITaskService taskService;
     private Handler wakeupHandler;

@@ -149,7 +149,7 @@ public class TaskService extends ITaskService.Stub {
             // 注意：Android系统的每个显示器都有独立的状态栏（SystemUI�?
             // 当应用切换到背屏时，它会显示背屏的状态栏，这是系统默认行�?
             // 要保持主屏状态栏可见需要系统级修改，无法通过应用层实�?
-            String cmd = "service call activity_task 50 i32 " + taskId + " i32 " + displayId;
+            String cmd = "am display move-stack " + taskId + " " + displayId;
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
             Process process = pb.start();
