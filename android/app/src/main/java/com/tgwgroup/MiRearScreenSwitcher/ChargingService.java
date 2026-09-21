@@ -157,61 +157,96 @@ public class ChargingService extends Service {
             String action = intent.getAction();
             
             if (Intent.ACTION_POWER_CONNECTED.equals(action)) {
-                // 检查开关状态
-                boolean enabled = prefs.getBoolean("charging_animation_enabled", true);
-                if (!enabled) {
-                    Log.d(TAG, "Charging animation disabled");
-                    return;
-                }
-                
-                // 检查冷却时间（防止重复触发）
-                long currentTime = System.currentTimeMillis();
-                if (currentTime - lastChargingAnimationTime < CHARGING_ANIMATION_COOLDOWN_MS) {
-                    Log.d(TAG, "⏸ Charging animation in cooldown, skipping");
-                    return;
-                }
-                
-                // 检查屏幕锁定状态
-                android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-                boolean isLocked = km != null && km.isKeyguardLocked();
-                
-                if (isLocked) {
-                    Log.d(TAG, "🔓 Screen is locked, will show charging animation with screen sleep");
-                } else {
-                    Log.d(TAG, "🔓 Screen is unlocked, will show charging animation without screen sleep");
-                }
-                
-                int batteryLevel = getBatteryLevel(context);
-                Log.d(TAG, "🔌 Power connected, battery: " + batteryLevel + "%");
-
-                // 通知动画管理器：开始充电动画（返回被打断的旧动画）
-                RearAnimationManager.AnimationType oldAnim = RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.CHARGING);
-                
-                // 如果有旧动画需要打断，发送打断广播
-                if (oldAnim == RearAnimationManager.AnimationType.NOTIFICATION) {
-                    Log.d(TAG, "检测到通知动画正在播放，发送打断广播");
-                    RearAnimationManager.sendInterruptBroadcast(ChargingService.this, RearAnimationManager.AnimationType.NOTIFICATION);
-                }
-                
-                showChargingOnRearScreen(batteryLevel, isLocked);
-                
-                // V3.5: 如果开启了充电动画常亮，启动唤醒和更新循环
-                if (chargingAlwaysOnEnabled) {
-                    Log.d(TAG, "充电动画常亮已开启，启动wakeup循环");
-                    startWakeupAndUpdateLoop();
-                }
+                // 接触不良的USB口会在几秒内反复插拔（PD重新协商），每次都会触发这个广播。
+                // 延迟CHARGE_DEBOUNCE_MS后再放动画：期间收到拔电广播就取消，
+                // 这样抖动的充电器无法反复抢占背屏。
+                debounceHandler.removeCallbacks(pendingChargingRunnable);
+                debounceHandler.postDelayed(pendingChargingRunnable, CHARGE_DEBOUNCE_MS);
+                Log.d(TAG, "🔌 Power connected, debouncing " + CHARGE_DEBOUNCE_MS + "ms");
             } else if (Intent.ACTION_POWER_DISCONNECTED.equals(action)) {
+                // 抖动期间拔电：取消待放的动画
+                debounceHandler.removeCallbacks(pendingChargingRunnable);
+
                 // 拔掉充电器，立即销毁充电动画
                 Log.d(TAG, "🔌 Power disconnected, finishing charging animation");
-                
+
                 // V3.5: 停止唤醒循环
                 stopWakeupLoop();
-                
+
                 finishChargingAnimation();
             }
         }
     };
-    
+
+    // 抖动过滤：充电连接稳定CHARGE_DEBOUNCE_MS后才放动画
+    private static final long CHARGE_DEBOUNCE_MS = 3000;
+    private final Handler debounceHandler = new Handler(android.os.Looper.getMainLooper());
+    private final Runnable pendingChargingRunnable = new Runnable() {
+        @Override
+        public void run() {
+            Context context = ChargingService.this;
+            // 去抖结束后复查：必须仍在充电，否则这次只是一次抖动
+            if (!isPluggedIn(context)) {
+                Log.d(TAG, "⏸ 去抖结束时已不在充电，忽略本次插入");
+                return;
+            }
+            // 检查开关状态
+            boolean enabled = prefs.getBoolean("charging_animation_enabled", true);
+            if (!enabled) {
+                Log.d(TAG, "Charging animation disabled");
+                return;
+            }
+
+            // 检查冷却时间（防止重复触发）
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - lastChargingAnimationTime < CHARGING_ANIMATION_COOLDOWN_MS) {
+                Log.d(TAG, "⏸ Charging animation in cooldown, skipping");
+                return;
+            }
+            
+            // 检查屏幕锁定状态
+            android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+            boolean isLocked = km != null && km.isKeyguardLocked();
+            
+            if (isLocked) {
+                Log.d(TAG, "🔓 Screen is locked, will show charging animation with screen sleep");
+            } else {
+                Log.d(TAG, "🔓 Screen is unlocked, will show charging animation without screen sleep");
+            }
+            
+            int batteryLevel = getBatteryLevel(context);
+            Log.d(TAG, "🔌 Power connected, battery: " + batteryLevel + "%");
+
+            // 通知动画管理器：开始充电动画（返回被打断的旧动画）
+            RearAnimationManager.AnimationType oldAnim = RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.CHARGING);
+            
+            // 如果有旧动画需要打断，发送打断广播
+            if (oldAnim == RearAnimationManager.AnimationType.NOTIFICATION) {
+                Log.d(TAG, "检测到通知动画正在播放，发送打断广播");
+                RearAnimationManager.sendInterruptBroadcast(ChargingService.this, RearAnimationManager.AnimationType.NOTIFICATION);
+            }
+            
+            showChargingOnRearScreen(batteryLevel, isLocked);
+            
+            // V3.5: 如果开启了充电动画常亮，启动唤醒和更新循环
+            if (chargingAlwaysOnEnabled) {
+                Log.d(TAG, "充电动画常亮已开启，启动wakeup循环");
+                startWakeupAndUpdateLoop();
+            }
+        }
+    };
+
+    /** 当前是否接着电源（去抖结束后复查用） */
+    private boolean isPluggedIn(Context context) {
+        try {
+            Intent i = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            return i != null && i.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) != 0;
+        } catch (Throwable t) {
+            Log.w(TAG, "检查充电状态失败: " + t.getMessage());
+            return true; // 读不到就按原行为放动画
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -402,7 +437,16 @@ public class ChargingService extends Service {
             Log.d(TAG, String.format("[%tT.%tL] 开始启动充电动画", startTime, startTime));
             
             // V3.3: 移除所有唤醒和解锁代码，避免锁屏时跳转到密码界面
-            
+
+            // 先唤醒背屏，再启动Activity，这样动画落在已点亮的屏幕上。
+            // 背屏处于DOZE/DOZE_SUSPEND时窗口flag（FLAG_TURN_SCREEN_ON）无效，
+            // 只有这条命令能把它点亮（等同双击唤醒），与NotificationService一致。
+            try {
+                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+            } catch (Throwable t) {
+                Log.w(TAG, "唤醒背屏失败: " + t.getMessage());
+            }
+
             // 步骤4: 使用MRSN的策略 - 先在主屏隐形启动，然后移动到背屏
             try {
                 // 4.1: 先在主屏启动（Activity会在onCreate自动隐藏）
@@ -486,7 +530,10 @@ public class ChargingService extends Service {
         
         // 清除静态实例
         instance = null;
-        
+
+        // 取消待放的充电动画，避免Service销毁后仍持有引用
+        debounceHandler.removeCallbacks(pendingChargingRunnable);
+
         // 移除Shizuku监听器
         try {
             Shizuku.removeBinderReceivedListener(binderReceivedListener);

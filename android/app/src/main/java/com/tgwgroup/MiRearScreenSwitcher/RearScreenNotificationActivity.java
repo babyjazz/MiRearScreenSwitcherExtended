@@ -37,11 +37,6 @@ public class RearScreenNotificationActivity extends Activity {
     
     private String packageName;
     private boolean contentInitialized = false;  // 标记内容是否已初始化
-    
-    // 通知动画期间持续唤醒和杀死launcher
-    private android.os.Handler wakeupHandler;
-    private Runnable wakeupRunnable;
-    private boolean isWakeupRunning = false;
 
     // 广播接收器：接收打断命令
     private android.content.BroadcastReceiver interruptReceiver = new android.content.BroadcastReceiver() {
@@ -311,14 +306,6 @@ public class RearScreenNotificationActivity extends Activity {
         
         // 设置为当前实例
         currentInstance = this;
-        
-        // 初始化wakeup循环
-        wakeupHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-        
-        // 如果在背屏，立即启动wakeup循环
-        if (displayId == 1) {
-            startWakeupAndKillLoop();
-        }
     }
     
     /**
@@ -406,11 +393,6 @@ public class RearScreenNotificationActivity extends Activity {
         // 确保锁屏显示设置持续生效
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
-        }
-        
-        // 确保Handler已初始化
-        if (wakeupHandler == null) {
-            wakeupHandler = new android.os.Handler(android.os.Looper.getMainLooper());
         }
         
         // 检查是否已从主屏移动到背屏（占位符变为实际显示）
@@ -589,14 +571,8 @@ public class RearScreenNotificationActivity extends Activity {
                 // V3.4: 根据设置的时间自动关闭
                 int duration = getSharedPreferences("mrss_settings", MODE_PRIVATE).getInt("notification_duration", 10);
                 container.postDelayed(this::finish, duration * 1000L);
-                
-                // 启动wakeup循环
-                startWakeupAndKillLoop();
-                
+
                 Log.d(TAG, String.format("[%tT.%tL] ✓ 移动后初始化完成", resumeTime, resumeTime));
-            } else if (currentDisplayId == 1 && !isWakeupRunning) {
-                // 如果已经在背屏但循环未启动，也启动（防止遗漏）
-                startWakeupAndKillLoop();
             }
         }
     }
@@ -620,10 +596,7 @@ public class RearScreenNotificationActivity extends Activity {
     protected void onDestroy() {
         long destroyTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] 🔴 onDestroy被调用", destroyTime, destroyTime));
-        
-        // 停止wakeup循环
-        stopWakeupLoop();
-        
+
         // 注销广播接收器
         try {
             unregisterReceiver(interruptReceiver);
@@ -1016,68 +989,6 @@ public class RearScreenNotificationActivity extends Activity {
         } catch (Exception e) {
             Log.e(TAG, "❌ 应用常规布局调整失败", e);
         }
-    }
-    
-    /**
-     * 启动通知动画期间的唤醒循环
-     */
-    private void startWakeupAndKillLoop() {
-        if (isWakeupRunning) {
-            Log.w(TAG, "⚠️ Wakeup loop already running");
-            return;
-        }
-        
-        isWakeupRunning = true;
-
-        wakeupRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (!isWakeupRunning) return;
-                
-                // 检查Activity是否还在运行
-                if (isFinishing()) {
-                    stopWakeupLoop();
-                    return;
-                }
-                
-                // 获取TaskService
-                ITaskService taskService = NotificationService.getTaskService();
-                
-                if (taskService != null) {
-                    // 发送wakeup命令
-                    try {
-                        taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                        Log.d(TAG, "✓ Wakeup sent");
-                    } catch (Throwable t) {
-                        Log.w(TAG, "发送wakeup失败: " + t.getMessage());
-                    }
-                } else {
-                    Log.w(TAG, "⚠️ TaskService is null, skipping wakeup");
-                }
-                
-                // 2秒后继续（原100ms过于频繁，每次都会fork一个shell进程）
-                if (wakeupHandler != null) {
-                    wakeupHandler.postDelayed(this, 2000);
-                }
-            }
-        };
-        
-        // 立即开始
-        if (wakeupHandler != null) {
-            wakeupHandler.post(wakeupRunnable);
-            Log.d(TAG, "✓ Wakeup loop started");
-        }
-    }
-    
-    /**
-     * 停止唤醒循环
-     */
-    private void stopWakeupLoop() {
-        isWakeupRunning = false;
-        if (wakeupHandler != null && wakeupRunnable != null) {
-            wakeupHandler.removeCallbacks(wakeupRunnable);
-        }
-        Log.d(TAG, "✓ Wakeup loop stopped");
     }
 }
 

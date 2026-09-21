@@ -360,35 +360,36 @@ public class NotificationService extends NotificationListenerService {
                 final long finalWhen = when;
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                     Log.d(TAG, "🔄 重载通知动画");
-                    showNotificationOnRearScreen(finalPackageName, finalTitle, finalText, finalWhen);
+                    // 背屏上一条通知动画刚被打断，屏幕显然已经点亮，跳过唤醒避免打断本次动画
+                    showNotificationOnRearScreen(finalPackageName, finalTitle, finalText, finalWhen, true);
                 }, 600);
                 return; // 提前返回，避免重复启动
             }
-            
+
             // 触发背屏通知显示
-            showNotificationOnRearScreen(packageName, title, text, when);
-            
+            showNotificationOnRearScreen(packageName, title, text, when, false);
+
         } catch (Exception e) {
             Log.e(TAG, "❌ 处理通知时出错", e);
         }
     }
-    
-    private void showNotificationOnRearScreen(String packageName, String title, String text, long when) {
+
+    private void showNotificationOnRearScreen(String packageName, String title, String text, long when, boolean skipWake) {
         // 参考ChargingService的重试机制
         if (taskService == null) {
             Log.w(TAG, "⚠️ TaskService未连接，尝试重新绑定...");
             bindTaskService();
-            
+
             // 延迟500ms后重试
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                showNotificationOnRearScreenDirect(packageName, title, text, when);
+                showNotificationOnRearScreenDirect(packageName, title, text, when, skipWake);
             }, 500);
         } else {
-            showNotificationOnRearScreenDirect(packageName, title, text, when);
+            showNotificationOnRearScreenDirect(packageName, title, text, when, skipWake);
         }
     }
     
-    private void showNotificationOnRearScreenDirect(String packageName, String title, String text, long when) {
+    private void showNotificationOnRearScreenDirect(String packageName, String title, String text, long when, boolean skipWake) {
         try {
             if (taskService == null) {
                 Log.e(TAG, "❌ TaskService仍然不可用，放弃显示通知");
@@ -430,6 +431,22 @@ public class NotificationService extends NotificationListenerService {
             
             // V3.3: 移除 wm dismiss-keyguard 命令，避免锁屏时跳转到密码界面
             
+            // 先唤醒背屏，再启动Activity，这样动画落在已点亮的屏幕上。
+            // 背屏处于DOZE/DOZE_SUSPEND时窗口flag（FLAG_TURN_SCREEN_ON）无效，
+            // 只有这条命令能把它点亮（等同双击唤醒），与RearScreenKeeperService/AlwaysWakeUpService一致。
+            // 必须放在所有启动策略之前：直接--display 1启动和占位+移动两条路径都要点亮。
+            // skipWake：上一条通知动画刚被打断重载时跳过，此时屏幕显然已经点亮，
+            // 再次唤醒只会多出一次无意义的等待，看起来像"唤醒动画打断了通知"。
+            if (!skipWake) {
+                try {
+                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                    // 等待背屏完成物理唤醒（背光渐亮），避免动画在屏幕还没亮起来时就开始绘制
+                    Thread.sleep(300);
+                } catch (Throwable t) {
+                    Log.w(TAG, "唤醒背屏失败: " + t.getMessage());
+                }
+            }
+
             // 2) 根据锁屏状态与前台应用选择启动策略
             String componentName = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
             
