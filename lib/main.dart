@@ -108,6 +108,9 @@ class _HomePageState extends State<HomePage> {
   // V3.5: 充电动画常亮开关
   bool _chargingAlwaysOnEnabled = false; // 默认关闭
 
+  // 锁屏时唤醒背屏开关
+  bool _wakeOnLockEnabled = false; // 默认关闭
+
   // V2.4: 通知功能
   bool _notificationEnabled = false; // 默认关闭（需要授权）
 
@@ -476,6 +479,7 @@ class _HomePageState extends State<HomePage> {
         _alwaysWakeUpEnabled =
             prefs.getBool('always_wakeup_enabled') ??
             false; // V3.5: 加载未投放应用时常亮开关状态
+        _wakeOnLockEnabled = prefs.getBool('wake_on_lock_enabled') ?? false;
 
         _notificationEnabled =
             prefs.getBool('notification_service_enabled') ??
@@ -731,6 +735,29 @@ class _HomePageState extends State<HomePage> {
       // 切换失败，恢复原状态
       setState(() {
         _chargingAlwaysOnEnabled = !enabled;
+      });
+    }
+  }
+
+  // 切换锁屏时唤醒背屏开关
+  Future<void> _toggleWakeOnLock(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('wake_on_lock_enabled', enabled);
+
+      await platform.invokeMethod('setWakeOnLockEnabled', {
+        'enabled': enabled,
+      });
+
+      setState(() {
+        _wakeOnLockEnabled = enabled;
+      });
+      print('锁屏时唤醒背屏已${enabled ? "启用" : "禁用"}');
+    } catch (e) {
+      print('切换锁屏时唤醒背屏失败: $e');
+      // 切换失败，恢复原状态
+      setState(() {
+        _wakeOnLockEnabled = !enabled;
       });
     }
   }
@@ -1295,6 +1322,29 @@ class _HomePageState extends State<HomePage> {
                                 ),
                               ),
                             ],
+                            const SizedBox(height: 12),
+                            const Divider(color: Colors.black26, height: 1),
+                            const SizedBox(height: 12),
+                            // 锁屏时唤醒背屏开关
+                            Row(
+                              children: [
+                                Text(
+                                  AppLocalizations.of(
+                                    context,
+                                  ).translate('wake_on_lock_title'),
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                const Spacer(),
+                                _GradientToggle(
+                                  value: _wakeOnLockEnabled,
+                                  onChanged: _toggleWakeOnLock,
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       ),

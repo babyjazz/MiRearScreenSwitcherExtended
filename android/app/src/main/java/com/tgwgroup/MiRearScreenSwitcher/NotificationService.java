@@ -75,8 +75,35 @@ public class NotificationService extends NotificationListenerService {
         }
     };
     
+    // 广播接收器：锁屏时唤醒背屏（可选开关，默认关闭）
+    // ACTION_SCREEN_OFF/ON自Android 3.1起就不会送达manifest静态声明的接收器，
+    // 只能像这样在运行中的组件里动态注册才能收到，所以放在这个常驻的NotificationService里。
+    private BroadcastReceiver wakeOnLockReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (!Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                return;
+            }
+            // 已有背屏任务在跑时不插手，避免和RearScreenKeeperService的保活逻辑打架
+            if (RearScreenBroadcastReceiver.hasActiveTask()) {
+                return;
+            }
+            if (!prefs.getBoolean("wake_on_lock_enabled", false)) {
+                return;
+            }
+            try {
+                if (taskService != null) {
+                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                    Log.d(TAG, "✓ 锁屏时已唤醒背屏");
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "锁屏唤醒背屏失败: " + t.getMessage());
+            }
+        }
+    };
+
     // Shizuku服务配置
-    private final Shizuku.UserServiceArgs serviceArgs = 
+    private final Shizuku.UserServiceArgs serviceArgs =
         new Shizuku.UserServiceArgs(new ComponentName("com.tgwgroup.MiRearScreenSwitcher", TaskService.class.getName()))
             .daemon(false)
             .processNameSuffix("notification_task_service")
@@ -147,7 +174,15 @@ public class NotificationService extends NotificationListenerService {
             registerReceiver(settingsReceiver, filter);
         }
         Log.d(TAG, "✓ 广播接收器已注册");
-        
+
+        // 注册锁屏时唤醒背屏的接收器（ACTION_SCREEN_OFF只能动态注册接收，manifest静态声明收不到）
+        IntentFilter screenOffFilter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(wakeOnLockReceiver, screenOffFilter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(wakeOnLockReceiver, screenOffFilter);
+        }
+
         // 添加Shizuku监听器
         Shizuku.addBinderReceivedListenerSticky(binderReceivedListener);
         Shizuku.addBinderDeadListener(binderDeadListener);
@@ -625,7 +660,12 @@ public class NotificationService extends NotificationListenerService {
         } catch (Exception e) {
             Log.w(TAG, "Failed to unregister receiver", e);
         }
-        
+        try {
+            unregisterReceiver(wakeOnLockReceiver);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to unregister wakeOnLockReceiver", e);
+        }
+
         // 移除Shizuku监听器
         try {
             Shizuku.removeBinderReceivedListener(binderReceivedListener);

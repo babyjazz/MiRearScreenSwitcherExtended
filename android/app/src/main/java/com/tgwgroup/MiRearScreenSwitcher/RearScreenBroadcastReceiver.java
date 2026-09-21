@@ -3,7 +3,7 @@
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
  * Bilibili: 罗德岛T0驭械术师澄闪
- * 
+ *
  * Co-developed with AI assistants:
  * - Cursor
  * - Claude-4.5-Sonnet
@@ -24,12 +24,12 @@ import android.util.Log;
  */
 public class RearScreenBroadcastReceiver extends BroadcastReceiver {
     private static final String TAG = "RearScreenReceiver";
-    
+
     // 保存最后投射的应用信息
     private static String lastMovedPackage = null;
     private static int lastTaskId = -1;
     private static boolean rearScreenActive = false;
-    
+
     /**
      * 保存最后投射的应用信息
      * 由 TaskService 调用
@@ -39,7 +39,7 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
         lastTaskId = taskId;
         rearScreenActive = true;
     }
-    
+
     /**
      * 清除保存的任务信息
      */
@@ -48,14 +48,14 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
         lastTaskId = -1;
         rearScreenActive = false;
     }
-    
+
     /**
      * 检查是否有活跃的背屏任务
      */
     public static boolean hasActiveTask() {
         return rearScreenActive && lastMovedPackage != null;
     }
-    
+
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
@@ -76,7 +76,7 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
             handleSystemScreenOn(context);
         }
     }
-    
+
     /**
      * 处理背屏点亮事件
      * 尝试恢复之前的常亮Activity和投射的应用
@@ -89,7 +89,7 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
         } else {
         }
     }
-    
+
     /**
      * 处理背屏熄灭事件
      */
@@ -99,7 +99,7 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
         } else {
         }
     }
-    
+
     /**
      * 处理系统屏幕关闭事件（双击息屏等）
      */
@@ -117,7 +117,7 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
             }
         }
     }
-    
+
     /**
      * 处理系统屏幕打开事件
      */

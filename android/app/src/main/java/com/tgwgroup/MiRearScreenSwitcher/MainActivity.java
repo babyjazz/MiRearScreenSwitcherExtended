@@ -696,6 +696,17 @@ public class MainActivity extends FlutterActivity {
                         break;
                     }
                     
+                    case "setWakeOnLockEnabled": {
+                        // 锁屏时唤醒背屏开关
+                        boolean enabled = (boolean) call.argument("enabled");
+
+                        SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
+                        prefs.edit().putBoolean("wake_on_lock_enabled", enabled).apply();
+
+                        result.success(true);
+                        break;
+                    }
+
                     case "setChargingAlwaysOnEnabled": {
                         // V3.5: 设置充电动画常亮开关
                         boolean enabled = (boolean) call.argument("enabled");
