@@ -33,47 +33,57 @@
             android:textColor="#FFFFFF"
             android:textSize="13sp"/>
 
-        <!-- 专辑封面（前景，主视觉） -->
-        <ImageView
-            android:id="@+id/media_album_art"
-            android:layout_width="140dp"
-            android:layout_height="140dp"
-            android:layout_alignParentTop="true"
-            android:layout_marginTop="8dp"
-            android:layout_toStartOf="@id/media_info"
-            android:layout_marginEnd="16dp"
-            android:scaleType="centerCrop"/>
-
-        <!-- 曲目标题+歌手（封面右侧，垂直居中对齐封面） -->
+        <!-- 封面+标题信息一行：用LinearLayout代替RelativeLayout的toStartOf/alignTop交叉依赖，
+             避免任何约束解析歧义，确保封面永远是固定正方形 -->
         <LinearLayout
-            android:id="@+id/media_info"
-            android:layout_width="wrap_content"
-            android:layout_height="140dp"
-            android:layout_alignParentEnd="true"
-            android:layout_alignTop="@id/media_album_art"
-            android:orientation="vertical"
-            android:gravity="center_vertical"
-            android:layout_marginEnd="80dp">
+            android:id="@+id/media_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:layout_marginTop="40dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-            <TextView
-                android:id="@+id/media_title"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#FFFFFF"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:maxLines="2"
-                android:ellipsize="end"/>
+            <!-- 专辑封面（固定正方形+圆角，永远60x60dp） -->
+            <ImageView
+                android:id="@+id/media_album_art"
+                android:layout_width="60dp"
+                android:layout_height="60dp"
+                android:scaleType="centerCrop"
+                android:background="@drawable/bg_rounded_square"
+                android:clipToOutline="true"/>
 
-            <TextView
-                android:id="@+id/media_artist"
-                android:layout_width="wrap_content"
+            <!-- 曲目标题+歌手 -->
+            <LinearLayout
+                android:id="@+id/media_info"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textColor="#CCFFFFFF"
-                android:textSize="14sp"
-                android:maxLines="1"
-                android:ellipsize="end"/>
+                android:layout_weight="1"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp"
+                android:orientation="vertical"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/media_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:maxLines="2"
+                    android:ellipsize="end"/>
+
+                <TextView
+                    android:id="@+id/media_artist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="14sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
         </LinearLayout>
 
         <!-- 播放控制按钮（大按钮，底部） -->
