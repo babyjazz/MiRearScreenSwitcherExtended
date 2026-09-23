@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <!-- 专辑封面铺满背景，压暗 -->
+    <ImageView
+        android:id="@+id/media_album_art_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0.35"/>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#66000000"/>
+
+    <RelativeLayout
+        android:id="@+id/media_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="16dp">
+
+        <!-- 时钟（右上角） -->
+        <TextView
+            android:id="@+id/media_clock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentEnd="true"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"/>
+
+        <!-- 专辑封面（前景，主视觉） -->
+        <ImageView
+            android:id="@+id/media_album_art"
+            android:layout_width="140dp"
+            android:layout_height="140dp"
+            android:layout_alignParentTop="true"
+            android:layout_marginTop="8dp"
+            android:layout_toStartOf="@id/media_info"
+            android:layout_marginEnd="16dp"
+            android:scaleType="centerCrop"/>
+
+        <!-- 曲目标题+歌手（封面右侧，垂直居中对齐封面） -->
+        <LinearLayout
+            android:id="@+id/media_info"
+            android:layout_width="wrap_content"
+            android:layout_height="140dp"
+            android:layout_alignParentEnd="true"
+            android:layout_alignTop="@id/media_album_art"
+            android:orientation="vertical"
+            android:gravity="center_vertical"
+            android:layout_marginEnd="80dp">
+
+            <TextView
+                android:id="@+id/media_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:maxLines="2"
+                android:ellipsize="end"/>
+
+            <TextView
+                android:id="@+id/media_artist"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="#CCFFFFFF"
+                android:textSize="14sp"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+        </LinearLayout>
+
+        <!-- 播放控制按钮（大按钮，底部） -->
+        <LinearLayout
+            android:id="@+id/media_controls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:layout_marginBottom="12dp"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/media_btn_prev"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="28dp"
+                android:background="@null"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_media_skip_previous"/>
+
+            <ImageButton
+                android:id="@+id/media_btn_play_pause"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@null"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_media_pause"/>
+
+            <ImageButton
+                android:id="@+id/media_btn_next"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="28dp"
+                android:background="@null"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_media_skip_next"/>
+        </LinearLayout>
+
+    </RelativeLayout>
+</FrameLayout>

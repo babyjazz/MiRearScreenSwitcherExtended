@@ -25,6 +25,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.media.MediaMetadata;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
+import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.PowerManager;
 import android.os.IBinder;
@@ -32,7 +37,10 @@ import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import rikka.shizuku.Shizuku;
@@ -58,11 +66,132 @@ public class NotificationService extends NotificationListenerService {
     
     // 静态实例，供外部访问
     private static NotificationService instance;
-    
+
     public static ITaskService getTaskService() {
         return instance != null ? instance.taskService : null;
     }
-    
+
+    // 媒体播放（POC）：当前追踪的MediaController，供背屏播放控制按钮直接调用
+    private MediaSessionManager mediaSessionManager;
+    private MediaController activeMediaController;
+    private String activeMediaPackage;
+
+    public static MediaController getActiveMediaController() {
+        return instance != null ? instance.activeMediaController : null;
+    }
+
+    /**
+     * 通知打断媒体播放显示后，通知结束时调用：如果媒体还在（没被真正停止），重新显示出来
+     */
+    public static void resumeMediaIfInterrupted() {
+        if (instance != null && instance.activeMediaController != null) {
+            instance.scheduleShowMediaOnRearScreen(
+                instance.activeMediaController.getMetadata(),
+                instance.activeMediaController.getPlaybackState()
+            );
+        }
+    }
+
+    // MediaController.Callback会为同一次曲目/状态变化连续触发好几次（onMetadataChanged+onPlaybackStateChanged
+    // 常常一起来，有时还会重复），每次showMediaOnRearScreen都是同步阻塞的唤醒+启动流程（含Thread.sleep），
+    // 密集触发会互相打架导致背屏显示不稳定，所以这里做去抖：短时间内只真正执行最后一次。
+    private static final long MEDIA_UPDATE_DEBOUNCE_MS = 250;
+    private final android.os.Handler mediaUpdateHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable pendingMediaUpdate;
+
+    private void scheduleShowMediaOnRearScreen(MediaMetadata metadata, PlaybackState state) {
+        if (pendingMediaUpdate != null) {
+            mediaUpdateHandler.removeCallbacks(pendingMediaUpdate);
+        }
+        pendingMediaUpdate = () -> showMediaOnRearScreen(metadata, state);
+        mediaUpdateHandler.postDelayed(pendingMediaUpdate, MEDIA_UPDATE_DEBOUNCE_MS);
+    }
+
+    private final MediaController.Callback mediaControllerCallback = new MediaController.Callback() {
+        @Override
+        public void onMetadataChanged(MediaMetadata metadata) {
+            scheduleShowMediaOnRearScreen(metadata, activeMediaController != null ? activeMediaController.getPlaybackState() : null);
+        }
+
+        @Override
+        public void onPlaybackStateChanged(PlaybackState state) {
+            if (state == null) return;
+            if (state.getState() == PlaybackState.STATE_STOPPED || state.getState() == PlaybackState.STATE_NONE) {
+                if (pendingMediaUpdate != null) {
+                    mediaUpdateHandler.removeCallbacks(pendingMediaUpdate);
+                }
+                RearAnimationManager.sendInterruptBroadcast(NotificationService.this, RearAnimationManager.AnimationType.MEDIA);
+                return;
+            }
+            scheduleShowMediaOnRearScreen(activeMediaController != null ? activeMediaController.getMetadata() : null, state);
+        }
+    };
+
+    private final MediaSessionManager.OnActiveSessionsChangedListener activeSessionsChangedListener =
+        controllers -> pickActiveMediaController(controllers);
+
+    /**
+     * 从当前活跃的MediaSession里选一个正在播放/最近使用的，注册回调追踪
+     */
+    private void pickActiveMediaController(List<MediaController> controllers) {
+        if (controllers == null || controllers.isEmpty()) {
+            if (activeMediaController != null) {
+                RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.MEDIA);
+            }
+            detachMediaController();
+            return;
+        }
+
+        // 优先选第一个正在播放的session（系统按最近活跃排序返回）
+        MediaController chosen = null;
+        for (MediaController c : controllers) {
+            PlaybackState state = c.getPlaybackState();
+            if (state != null && state.getState() == PlaybackState.STATE_PLAYING) {
+                chosen = c;
+                break;
+            }
+        }
+        if (chosen == null) {
+            // 没有正在播放的，退而求其次选第一个"有真实状态"的session（比如暂停中的）。
+            // 不能无脑取controllers.get(0)：有些app（如淘宝的TbAliveMedia）会一直挂着一个
+            // state=null的占位session，选中它会让我们卡死在一个永远不会更新的死session上，
+            // 之后新出现的真实播放session反而因为"已经有session了"被去重逻辑挡在外面。
+            for (MediaController c : controllers) {
+                if (c.getPlaybackState() != null) {
+                    chosen = c;
+                    break;
+                }
+            }
+        }
+        if (chosen == null) {
+            // 所有session都没有真实状态，没什么可显示的
+            if (activeMediaController != null) {
+                RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.MEDIA);
+            }
+            detachMediaController();
+            return;
+        }
+        if (activeMediaController != null && activeMediaController.getSessionToken().equals(chosen.getSessionToken())) {
+            return; // 还是同一个session，回调已经注册过
+        }
+
+        detachMediaController();
+        activeMediaController = chosen;
+        activeMediaPackage = chosen.getPackageName();
+        activeMediaController.registerCallback(mediaControllerCallback);
+        scheduleShowMediaOnRearScreen(activeMediaController.getMetadata(), activeMediaController.getPlaybackState());
+    }
+
+    private void detachMediaController() {
+        if (activeMediaController != null) {
+            try {
+                activeMediaController.unregisterCallback(mediaControllerCallback);
+            } catch (Throwable ignored) {}
+        }
+        activeMediaController = null;
+        activeMediaPackage = null;
+    }
+
     // 广播接收器：监听设置重新加载
     private BroadcastReceiver settingsReceiver = new BroadcastReceiver() {
         @Override
@@ -92,7 +221,13 @@ public class NotificationService extends NotificationListenerService {
                 return;
             }
             try {
-                if (taskService != null) {
+                if (taskService == null) return;
+                if (activeMediaController != null) {
+                    // 媒体正在播放时，光唤醒屏幕不保证亮起来后看到的还是媒体界面
+                    // （背屏亮灭有自己的时序，容易和官方Launcher抢位置），
+                    // 直接重新显示媒体播放界面，保证锁屏后背屏上一定是它。
+                    scheduleShowMediaOnRearScreen(activeMediaController.getMetadata(), activeMediaController.getPlaybackState());
+                } else {
                     taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
                     Log.d(TAG, "✓ 锁屏时已唤醒背屏");
                 }
@@ -198,8 +333,19 @@ public class NotificationService extends NotificationListenerService {
         // 启动为前台服务，防止被系统杀死
         startForeground(NOTIFICATION_ID, RearScreenKeeperService.createServiceNotification(this));
         Log.d(TAG, "✓ 前台服务已启动");
-        
+
         loadSettings();
+
+        // 媒体播放（POC）：注册MediaSession监听，追踪当前播放的曲目
+        try {
+            mediaSessionManager = (MediaSessionManager) getSystemService(Context.MEDIA_SESSION_SERVICE);
+            ComponentName listenerComponent = new ComponentName(this, NotificationService.class);
+            mediaSessionManager.addOnActiveSessionsChangedListener(activeSessionsChangedListener, listenerComponent);
+            // 监听只对之后的变化生效，启动时手动取一次当前已有的session
+            pickActiveMediaController(mediaSessionManager.getActiveSessions(listenerComponent));
+        } catch (Throwable t) {
+            Log.w(TAG, "注册MediaSession监听失败: " + t.getMessage());
+        }
     }
     
     private void bindTaskService() {
@@ -293,7 +439,16 @@ public class NotificationService extends NotificationListenerService {
             Notification notification = sbn.getNotification();
             
             Log.d(TAG, "📢 收到通知: " + packageName);
-            
+
+            // 忽略媒体播放通知：这类通知交给专门的媒体播放显示流程（MediaSessionManager）处理，
+            // 不能走普通通知弹窗，否则每次曲目/播放状态更新都会弹出聊天式通知，还会打断媒体播放界面。
+            // 有些应用（如YouTube Music的部分版本）的播放通知不带FLAG_ONGOING_EVENT，
+            // 所以不能只看这个flag，要直接看是否挂了MediaSession。
+            if (notification.extras.getParcelable(Notification.EXTRA_MEDIA_SESSION) != null) {
+                Log.d(TAG, "⏭️ 忽略媒体播放通知（走专门的媒体播放流程）: " + packageName);
+                return;
+            }
+
             // 忽略常驻通知
             if ((notification.flags & Notification.FLAG_ONGOING_EVENT) != 0) {
                 Log.d(TAG, "⏭️ 忽略常驻通知: " + packageName);
@@ -384,6 +539,11 @@ public class NotificationService extends NotificationListenerService {
                 RearAnimationManager.markInterruptedChargingAsAlwaysOn(chargingAlwaysOn);
                 
                 RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.CHARGING);
+            } else if (oldAnim == RearAnimationManager.AnimationType.MEDIA) {
+                Log.d(TAG, "🔄 检测到媒体播放显示正在播放，发送打断广播");
+                // 通知结束后要恢复媒体播放显示，而不是回到官方Launcher
+                RearAnimationManager.markMediaInterruptedByNotification();
+                RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.MEDIA);
             } else if (oldAnim == RearAnimationManager.AnimationType.NOTIFICATION) {
                 Log.d(TAG, "🔄 检测到通知动画正在播放，发送打断广播并重载");
                 RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.NOTIFICATION);
@@ -611,6 +771,94 @@ public class NotificationService extends NotificationListenerService {
         }
     }
 
+    /**
+     * 媒体播放显示（POC）：把当前播放的曲目信息+专辑封面显示到背屏，带播放控制按钮。
+     * 复用通知服务的开关和"选中应用"名单做门槛，不新增单独开关。
+     */
+    private void showMediaOnRearScreen(MediaMetadata metadata, PlaybackState state) {
+        try {
+            if (taskService == null || activeMediaPackage == null) return;
+            if (!serviceEnabled) return;
+            if (!prefs.getStringSet("notification_selected_apps", new HashSet<>()).contains(activeMediaPackage)) return;
+            if (metadata == null) return;
+
+            String title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE);
+            String artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST);
+            boolean isPlaying = state != null && state.getState() == PlaybackState.STATE_PLAYING;
+
+            String albumArtPath = null;
+            Bitmap art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+            if (art == null) art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ART);
+            if (art != null) {
+                try {
+                    File f = new File(getCacheDir(), "media_album_art.png");
+                    FileOutputStream fos = new FileOutputStream(f);
+                    art.compress(Bitmap.CompressFormat.PNG, 90, fos);
+                    fos.close();
+                    albumArtPath = f.getAbsolutePath();
+                } catch (Throwable t) {
+                    Log.w(TAG, "写入专辑封面失败: " + t.getMessage());
+                }
+            }
+
+            try {
+                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                Thread.sleep(300);
+            } catch (Throwable t) {
+                Log.w(TAG, "唤醒背屏失败: " + t.getMessage());
+            }
+
+            RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.MEDIA);
+
+            String componentName = getPackageName() + "/" + RearScreenMediaActivity.class.getName();
+            String extras = String.format(
+                "--es packageName \"%s\" --es title \"%s\" --es artist \"%s\" --es albumArtPath \"%s\" --ez isPlaying %b",
+                activeMediaPackage,
+                title == null ? "" : title.replace("\"", "\\\""),
+                artist == null ? "" : artist.replace("\"", "\\\""),
+                albumArtPath == null ? "" : albumArtPath,
+                isPlaying
+            );
+
+            // 锁屏时HyperOS会拒绝直接--display 1的新Task启动（ActivityStarterImpl的rearDisplay检查），
+            // 与通知弹窗一样，需要先在主屏占位再move-stack过去
+            android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+            boolean isLocked = km != null && km.isKeyguardLocked();
+
+            boolean started = false;
+            if (!isLocked) {
+                taskService.executeShellCommand("am start --display 1 -n " + componentName + " " + extras);
+                try { Thread.sleep(150); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                String check = taskService.executeShellCommandWithResult("am stack list | grep RearScreenMediaActivity");
+                started = check != null && !check.trim().isEmpty();
+            }
+
+            if (!started) {
+                taskService.executeShellCommand("am start -n " + componentName + " " + extras);
+                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+
+                String mediaTaskId = null;
+                for (int attempts = 0; attempts < 60 && mediaTaskId == null; attempts++) {
+                    try { Thread.sleep(40); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    String result = taskService.executeShellCommandWithResult("am stack list | grep RearScreenMediaActivity");
+                    if (result != null && !result.trim().isEmpty()) {
+                        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("taskId=(\\d+)").matcher(result);
+                        if (matcher.find()) mediaTaskId = matcher.group(1);
+                    }
+                }
+                if (mediaTaskId != null) {
+                    taskService.executeShellCommand("am display move-stack " + mediaTaskId + " 1");
+                } else {
+                    Log.w(TAG, "⚠️ 未能找到媒体播放Activity的taskId");
+                }
+            }
+
+            Log.d(TAG, "🎵 已在背屏显示媒体播放: " + title);
+        } catch (Exception e) {
+            Log.e(TAG, "❌ 显示背屏媒体播放失败", e);
+        }
+    }
+
     private void acquireWakeLock(long timeoutMs) {
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -652,7 +900,20 @@ public class NotificationService extends NotificationListenerService {
     public void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "🔴 NotificationService destroyed");
-        
+
+        // 媒体播放（POC）：注销MediaSession监听
+        try {
+            if (mediaSessionManager != null) {
+                mediaSessionManager.removeOnActiveSessionsChangedListener(activeSessionsChangedListener);
+            }
+            if (pendingMediaUpdate != null) {
+                mediaUpdateHandler.removeCallbacks(pendingMediaUpdate);
+            }
+            detachMediaController();
+        } catch (Throwable t) {
+            Log.w(TAG, "注销MediaSession监听失败: " + t.getMessage());
+        }
+
         // 注销广播接收器
         try {
             unregisterReceiver(settingsReceiver);

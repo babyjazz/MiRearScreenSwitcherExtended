@@ -637,7 +637,14 @@ public class RearScreenNotificationActivity extends Activity {
             RearAnimationManager.clearChargingAlwaysOnFlag();
             return;  // 不恢复官方Launcher
         }
-        
+
+        // 检查是否需要恢复媒体播放显示（被本次通知打断的）
+        if (RearAnimationManager.consumeMediaInterruptedByNotificationFlag()) {
+            Log.d(TAG, String.format("[%tT.%tL] 🎵 检测到媒体播放显示被打断，恢复显示", destroyTime, destroyTime));
+            NotificationService.resumeMediaIfInterrupted();
+            return;  // 不恢复官方Launcher，媒体播放显示会自己接管背屏
+        }
+
         // 在背屏恢复官方Launcher
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             int currentDisplayId = getDisplay() != null ? getDisplay().getDisplayId() : 0;

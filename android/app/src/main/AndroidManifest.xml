@@ -221,7 +221,22 @@
             android:turnScreenOn="true">
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
-            
+
+        <!-- 背屏媒体播放显示Activity（POC） -->
+        <activity
+            android:name=".RearScreenMediaActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.media"
+            android:theme="@style/Theme.Transparent"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
+            android:directBootAware="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">
+            <meta-data android:name="miui.rear.policy" android:value="miui"/>
+        </activity>
+
         <!-- V2.6: URI接收Activity（透明，立即转发） -->
         <activity
             android:name=".UriReceiverActivity"

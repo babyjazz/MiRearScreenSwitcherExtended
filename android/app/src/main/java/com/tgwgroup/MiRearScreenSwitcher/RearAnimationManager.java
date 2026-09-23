@@ -27,7 +27,8 @@ public class RearAnimationManager {
     public enum AnimationType {
         NONE,           // 无动画
         CHARGING,       // 充电动画
-        NOTIFICATION    // 通知动画
+        NOTIFICATION,   // 通知动画
+        MEDIA           // 媒体播放动画
     }
     
     // 当前正在播放的动画类型
@@ -38,6 +39,9 @@ public class RearAnimationManager {
     
     // V3.5: 被打断的充电动画是否是常亮模式
     private static volatile boolean interruptedChargingWasAlwaysOn = false;
+
+    // 媒体播放显示是否被通知打断（通知结束后要恢复媒体播放显示）
+    private static volatile boolean mediaInterruptedByNotification = false;
     
     /**
      * 开始播放动画
@@ -87,6 +91,22 @@ public class RearAnimationManager {
      */
     public static synchronized void clearChargingAlwaysOnFlag() {
         interruptedChargingWasAlwaysOn = false;
+    }
+
+    /**
+     * 标记媒体播放显示被通知打断，通知结束后要恢复
+     */
+    public static synchronized void markMediaInterruptedByNotification() {
+        mediaInterruptedByNotification = true;
+    }
+
+    /**
+     * 取走"媒体被通知打断"标记（取走后立即清除，避免重复恢复）
+     */
+    public static synchronized boolean consumeMediaInterruptedByNotificationFlag() {
+        boolean was = mediaInterruptedByNotification;
+        mediaInterruptedByNotification = false;
+        return was;
     }
     
     /**
@@ -142,6 +162,9 @@ public class RearAnimationManager {
             case NOTIFICATION:
                 action = "com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_NOTIFICATION_ANIMATION";
                 break;
+            case MEDIA:
+                action = "com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_MEDIA_ANIMATION";
+                break;
             default:
                 return;
         }
@@ -167,6 +190,9 @@ public class RearAnimationManager {
                 break;
             case NOTIFICATION:
                 action = "com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_NOTIFICATION_ANIMATION";
+                break;
+            case MEDIA:
+                action = "com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_MEDIA_ANIMATION";
                 break;
             default:
                 return;
