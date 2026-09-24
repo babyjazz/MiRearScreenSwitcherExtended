@@ -13,9 +13,27 @@ URI control, permissions, and changelog — please read all detail in:
 
 **https://github.com/aaronnat23/MiRearScreenSwitcherEnglish**
 
-## New feature: Interactive media playback on the rear screen
+## New features in this fork
+
+### 1. Power off to wake rear screen
+
+Feature branch: **`power-off-to-wake-rear-screen`**
+
+Pressing the power button wakes the rear screen directly with MRSS, making it
+fast to flip the phone and see the rear display.
+
+### 2. Notification rear-screen wake-up
+
+Feature branch: **`feature/notification-rear-brightness`**
+
+When a selected app notification arrives, the rear screen wakes and shows the
+notification right away.
+
+### 3. Add media player
 
 Feature branch: **`feat/add-media-player`**
+
+![Rear-screen media playback](RD_20260924_132111.png)
 
 - Shows song title, artist, and album art on the rear screen while music plays.
 - Works with **YouTube Music**, Spotify, and other music apps.
