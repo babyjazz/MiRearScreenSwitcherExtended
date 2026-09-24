@@ -17,29 +17,12 @@ URI control, permissions, and changelog — please read all detail in:
 
 Feature branch: **`feat/add-media-player`**
 
-- Shows currently-playing media on the rear display: song title, artist, and
-  rounded-square album art with a blurred album-art background.
-- Works with any app that has an active `MediaSession` — **YouTube Music**,
-  Spotify, and other music apps.
-- Real **prev / play-pause / next** controls wired to that app's
-  `MediaController`.
-- Ongoing media notifications are excluded from the regular notification
-  popup pipeline (detected via `EXTRA_MEDIA_SESSION`, not just
-  `FLAG_ONGOING_EVENT`), so metadata updates don't spawn chat-style popups
-  that interrupt the media screen.
-- A real notification can interrupt media display — and media resumes
-  automatically once the notification goes away.
-- Auto-recovers if the rear media screen is swiped away while media is still
-  active.
-- Handles HyperOS rear-display quirks: camera-cutout safe-area padding,
-  correct rear-screen density/DPI, and the `move-stack` fallback when a
-  locked `--display 1` launch is denied.
-- Tuned media layout: compact 70dp rounded-square album art, wide title /
-  artist area, and top-positioned clock + controls.
-
-`MEDIA` is registered in `RearAnimationManager` as a full-screen rear
-experience, so it coordinates cleanly with charging and notification
-animations instead of fighting for the display.
+- Shows song title, artist, and album art on the rear screen while music plays.
+- Works with **YouTube Music**, Spotify, and other music apps.
+- Prev / play-pause / next controls right on the rear screen.
+- Notifications won't be pushed as popups while media is showing, so playback
+  stays uninterrupted — but a real notification can still interrupt briefly,
+  and media resumes after it.
 
 ## Requirements / Setup
 
