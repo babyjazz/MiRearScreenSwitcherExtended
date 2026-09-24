@@ -37,6 +37,7 @@ public class RearScreenNotificationActivity extends Activity {
     
     private String packageName;
     private boolean contentInitialized = false;  // 标记内容是否已初始化
+    private boolean interrupted = false;         // 被新动画打断（背屏已被接管）
 
     // 广播接收器：接收打断命令
     private android.content.BroadcastReceiver interruptReceiver = new android.content.BroadcastReceiver() {
@@ -44,6 +45,8 @@ public class RearScreenNotificationActivity extends Activity {
         public void onReceive(android.content.Context context, android.content.Intent intent) {
             if ("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_NOTIFICATION_ANIMATION".equals(intent.getAction())) {
                 Log.d(TAG, "🔄 收到打断广播（新动画来了），立即销毁但不恢复Launcher");
+                // 新动画已接管背屏：onDestroy里不能再endAnimation/恢复Launcher，否则会清掉新动画的状态并和它抢背屏
+                interrupted = true;
                 finish();
             }
         }
@@ -614,6 +617,11 @@ public class RearScreenNotificationActivity extends Activity {
         }
         // 清除静态引用，避免已销毁的实例（及其View树）被静态字段持续持有导致内存泄漏
         currentInstance = null;
+
+        if (interrupted) {
+            Log.d(TAG, String.format("[%tT.%tL] 🔄 被新动画打断，背屏已被接管，跳过结束/恢复", destroyTime, destroyTime));
+            return;
+        }
 
         // 通知动画管理器：通知动画结束
         boolean shouldRestore = RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.NOTIFICATION);

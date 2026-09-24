@@ -157,6 +157,11 @@ public class ChargingService extends Service {
             String action = intent.getAction();
             
             if (Intent.ACTION_POWER_CONNECTED.equals(action)) {
+                // 拔电后FLAP_WINDOW_MS内又接上 = PD掉线重协商（接触不良的口约每40秒一次），不是用户插电，不放动画
+                if (System.currentTimeMillis() - lastPowerDisconnectedTime < FLAP_WINDOW_MS) {
+                    Log.d(TAG, "🔌 Power reconnected within " + FLAP_WINDOW_MS + "ms of disconnect, treating as flap");
+                    return;
+                }
                 // 接触不良的USB口会在几秒内反复插拔（PD重新协商），每次都会触发这个广播。
                 // 延迟CHARGE_DEBOUNCE_MS后再放动画：期间收到拔电广播就取消，
                 // 这样抖动的充电器无法反复抢占背屏。
@@ -164,6 +169,7 @@ public class ChargingService extends Service {
                 debounceHandler.postDelayed(pendingChargingRunnable, CHARGE_DEBOUNCE_MS);
                 Log.d(TAG, "🔌 Power connected, debouncing " + CHARGE_DEBOUNCE_MS + "ms");
             } else if (Intent.ACTION_POWER_DISCONNECTED.equals(action)) {
+                lastPowerDisconnectedTime = System.currentTimeMillis();
                 // 抖动期间拔电：取消待放的动画
                 debounceHandler.removeCallbacks(pendingChargingRunnable);
 
@@ -180,6 +186,9 @@ public class ChargingService extends Service {
 
     // 抖动过滤：充电连接稳定CHARGE_DEBOUNCE_MS后才放动画
     private static final long CHARGE_DEBOUNCE_MS = 3000;
+    // 拔电后多久内重新接上视为抖动（观测到的PD掉线重协商约2秒）
+    private static final long FLAP_WINDOW_MS = 5000;
+    private long lastPowerDisconnectedTime = 0;
     private final Handler debounceHandler = new Handler(android.os.Looper.getMainLooper());
     private final Runnable pendingChargingRunnable = new Runnable() {
         @Override
@@ -441,8 +450,18 @@ public class ChargingService extends Service {
             // 先唤醒背屏，再启动Activity，这样动画落在已点亮的屏幕上。
             // 背屏处于DOZE/DOZE_SUSPEND时窗口flag（FLAG_TURN_SCREEN_ON）无效，
             // 只有这条命令能把它点亮（等同双击唤醒），与NotificationService一致。
+            // 背屏原本熄灭时，唤醒完成那一刻HyperOS会把SubScreenLauncher拉到前台并移除我们的任务，
+            // 所以要等唤醒完成（实测约1.5秒）再启动动画；背屏已亮则无需等待。
+            android.view.Display rearDisplay = ((android.hardware.display.DisplayManager)
+                    getSystemService(Context.DISPLAY_SERVICE)).getDisplay(1);
+            boolean rearWasOn = rearDisplay != null && rearDisplay.getState() == android.view.Display.STATE_ON;
             try {
                 taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                if (!rearWasOn) {
+                    Thread.sleep(1500);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             } catch (Throwable t) {
                 Log.w(TAG, "唤醒背屏失败: " + t.getMessage());
             }

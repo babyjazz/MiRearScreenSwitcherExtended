@@ -63,6 +63,7 @@ public class NotificationService extends NotificationListenerService {
     private ITaskService taskService; // 自己的TaskService实例
     private SharedPreferences prefs;
     private PowerManager.WakeLock wakeLock;
+    private String lastShownSignature; // 最近一次显示的通知（key|标题|内容），用于过滤重复发布
     
     // 静态实例，供外部访问
     private static NotificationService instance;
@@ -514,6 +515,17 @@ public class NotificationService extends NotificationListenerService {
             
             Log.d(TAG, "📝 通知标题: " + title);
             Log.d(TAG, "📝 通知内容: " + text);
+
+            // 同一条通知的重复发布（如Telegram 1.5秒内更新4次）：正在显示同样内容时忽略，
+            // 否则每次都会打断当前通知Activity再重载，表现为背屏闪一下却不显示。
+            // 用隐私处理前的原始内容比较，隐私模式下同一会话的新消息也能正常替换。
+            String signature = sbn.getKey() + "|" + title + "|" + text;
+            if (signature.equals(lastShownSignature)
+                    && RearAnimationManager.getCurrentAnimation() == RearAnimationManager.AnimationType.NOTIFICATION) {
+                Log.d(TAG, "⏭️ 重复发布的相同通知且仍在显示，忽略: " + packageName);
+                return;
+            }
+            lastShownSignature = signature;
             
             // V3.2: 隐私模式处理（区分标题和内容）
             if (privacyHideTitle) {
@@ -677,29 +689,27 @@ public class NotificationService extends NotificationListenerService {
             );
             
             boolean started = false;
-            // 尝试3次直接启动，确保成功
-            for (int retry = 0; retry < 3; retry++) {
+            // 锁屏时HyperOS必定拒绝 --display 1（ActivityStarterImpl），直接走下面的主屏占位+移动，省掉约1秒无效尝试。
+            // 非锁屏只启动一次再轮询：Activity要约0.5秒才出现在am stack list里，
+            // 期间重复 --display 1 会被当成新任务启动，可能产生phantom任务。
+            if (!isLocked) {
                 try {
                     taskService.executeShellCommand(directCmd);
-                    Log.d(TAG, String.format("✓ %s，直接在背屏启动通知Activity (尝试%d)",
-                        isLocked ? "锁屏状态" : "非锁屏状态", retry + 1));
-                    try { Thread.sleep(150); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                    
-                    // 检查是否启动成功
-                    String check = taskService.executeShellCommandWithResult("am stack list | grep RearScreenNotificationActivity");
-                    if (check != null && !check.trim().isEmpty()) {
-                        started = true;
-                        Log.d(TAG, "✓ 通知动画已在背屏启动");
-                        break;
+                    Log.d(TAG, "✓ 非锁屏状态，直接在背屏启动通知Activity");
+                    for (int i = 0; i < 6 && !started; i++) {
+                        try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                        String check = taskService.executeShellCommandWithResult("am stack list | grep RearScreenNotificationActivity");
+                        started = check != null && !check.trim().isEmpty();
                     }
+                    Log.d(TAG, started ? "✓ 通知动画已在背屏启动" : "⚠️ 直接背屏启动未出现");
                 } catch (Throwable t) {
-                    Log.w(TAG, String.format("尝试%d失败: %s", retry + 1, t.getMessage()));
+                    Log.w(TAG, "直接背屏启动失败: " + t.getMessage());
                 }
             }
             
             // 如果直接启动失败，使用备用策略（主屏占位+移动）
-            if (!started && isLocked) {
-                Log.w(TAG, "⚠️ 直接背屏启动失败，回退到主屏占位+移动策略");
+            if (!started) {
+                Log.w(TAG, isLocked ? "🔒 锁屏状态，使用主屏占位+移动策略" : "⚠️ 直接背屏启动失败，回退到主屏占位+移动策略");
                 
                 // 主屏启动（Activity 自行占位）
                 String startOnMainCmd = String.format(
