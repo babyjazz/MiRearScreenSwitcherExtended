@@ -19,8 +19,8 @@ Feature branch: **`feat/add-media-player`**
 
 - Shows currently-playing media on the rear display: song title, artist, and
   rounded-square album art with a blurred album-art background.
-- Works with any app that has an active `MediaSession` (e.g. YouTube Music,
-  Spotify).
+- Works with any app that has an active `MediaSession` — **YouTube Music**,
+  Spotify, and other music apps.
 - Real **prev / play-pause / next** controls wired to that app's
   `MediaController`.
 - Ongoing media notifications are excluded from the regular notification
