@@ -33,10 +33,10 @@ notification right away.
 
 Feature branch: **`feat/add-media-player`**
 
-![Rear-screen media playback](music-playback.jpeg)
+![Rear-screen media playback](music-playback.jpg)
 
 - Shows song title, artist, and album art on the rear screen while music plays.
-- Works with **YouTube Music**, Spotify, and other music apps.
+- Works with **YouTube Music** - Not the same feature as Spotify or Chinese native music app. and tested only with YouTube music
 - Prev / play-pause / next controls right on the rear screen.
 - Notifications won't be pushed as popups while media is showing, so playback
   stays uninterrupted — but a real notification can still interrupt briefly,
