@@ -33,7 +33,7 @@ notification right away.
 
 Feature branch: **`feat/add-media-player`**
 
-![Rear-screen media playback](RD_20260924_132111.png)
+![Rear-screen media playback](music-playback.jpeg)
 
 - Shows song title, artist, and album art on the rear screen while music plays.
 - Works with **YouTube Music**, Spotify, and other music apps.
