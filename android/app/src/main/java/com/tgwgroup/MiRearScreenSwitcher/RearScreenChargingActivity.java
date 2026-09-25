@@ -40,7 +40,46 @@ public class RearScreenChargingActivity extends Activity {
     // 静态实例追踪，防止旧实例干扰新实例
     private static volatile RearScreenChargingActivity currentInstance = null;
     private static volatile long currentInstanceCreateTime = 0;
-    
+    // 充电动画当前是否可见（背屏休眠/上滑回桌面/被系统移除时为false），供ChargingService常亮模式判断是否需要重新拉起
+    private static volatile boolean showing = false;
+
+    public static boolean isShowing() {
+        return showing;
+    }
+
+    // 最近一次变为可见的时间，ChargingService据此判断重新拉起是否被系统很快移除
+    private static volatile long shownSince = 0;
+
+    public static long getShownSince() {
+        return shownSince;
+    }
+
+    // 上一次可见持续了多久（onStart到onStop）
+    private static volatile long lastVisibleMs = Long.MAX_VALUE;
+
+    public static long getLastVisibleMs() {
+        return lastVisibleMs;
+    }
+
+    // 动画是否由自己结束（8秒到时/拔电/被通知打断），区别于被系统移除或上滑回桌面；
+    // 非常亮模式下ChargingService据此判断本轮是否已完整播放，不再重新拉起
+    private static volatile boolean selfFinished = false;
+
+    public static boolean isSelfFinished() {
+        return selfFinished;
+    }
+
+    public static void resetSelfFinished() {
+        selfFinished = false;
+    }
+
+    private void finishBySelf() {
+        // 已被系统移除的旧实例，其残留的定时器不能把新一轮动画标记为已结束
+        if (isFinishing() || isDestroyed()) return;
+        selfFinished = true;
+        finish();
+    }
+
     // 静态电量更新方法，供ChargingService直接调用
     public static void updateBatteryLevelStatic(int newLevel) {
         if (currentInstance != null) {
@@ -55,11 +94,11 @@ public class RearScreenChargingActivity extends Activity {
             String action = intent.getAction();
             if ("com.tgwgroup.MiRearScreenSwitcher.FINISH_CHARGING_ANIMATION".equals(action)) {
                 Log.d(TAG, "🔌 收到拔电广播，立即销毁");
-                finish();
+                finishBySelf();
             } else if ("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_CHARGING_ANIMATION".equals(action)) {
                 Log.d(TAG, "🔄 收到打断广播（新动画来了），立即销毁但不恢复Launcher");
                 // 标记为被打断，onDestroy不恢复Launcher
-                finish();
+                finishBySelf();
             } else if ("com.tgwgroup.MiRearScreenSwitcher.UPDATE_CHARGING_BATTERY".equals(action)) {
                 // V3.5: 接收电量更新
                 int newLevel = intent.getIntExtra("batteryLevel", -1);
@@ -224,7 +263,7 @@ public class RearScreenChargingActivity extends Activity {
             Log.d(TAG, "🎬 动画已启动，充电常亮模式，不自动关闭");
         } else {
             Log.d(TAG, "🎬 动画已启动，8秒后自动关闭");
-            pendingFinishRunnable = this::finish;
+            pendingFinishRunnable = this::finishBySelf;
             chargingContainer.postDelayed(pendingFinishRunnable, 8000);
         }
         autoFinishScheduled = true;
@@ -257,7 +296,7 @@ public class RearScreenChargingActivity extends Activity {
                 
                 if (!chargingAlwaysOn) {
                     Log.d(TAG, "⏱️ 未安排自动销毁，补偿安排5秒后finish");
-                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::finish, 5000);
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::finishBySelf, 5000);
                 } else {
                     Log.d(TAG, "💡 充电常亮模式，不自动销毁");
                 }
@@ -266,6 +305,34 @@ public class RearScreenChargingActivity extends Activity {
         }
     }
     
+    @Override
+    protected void onStart() {
+        super.onStart();
+        showing = true;
+        shownSince = System.currentTimeMillis();
+        // 锁屏无操作时系统约1秒后让设备休眠，并把SubScreenLauncher拉到前台移除我们；
+        // 动画真正可见后再唤醒一次背屏，才能让它保持亮着（在move-stack后立即唤醒太早，不起作用）
+        if (getDisplay() != null && getDisplay().getDisplayId() == 1) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (!showing) return;
+                ITaskService ts = ChargingService.getTaskService();
+                if (ts == null) ts = NotificationService.getTaskService();
+                try {
+                    if (ts != null) ts.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                } catch (Throwable t) {
+                    Log.w(TAG, "可见后唤醒背屏失败: " + t.getMessage());
+                }
+            }, 500);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        showing = false;
+        lastVisibleMs = System.currentTimeMillis() - shownSince;
+    }
+
     @Override
     protected void onDestroy() {
         long destroyTime = System.currentTimeMillis();
