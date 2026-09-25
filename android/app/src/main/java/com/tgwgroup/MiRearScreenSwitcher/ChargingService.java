@@ -189,6 +189,18 @@ public class ChargingService extends Service {
     // 拔电后多久内重新接上视为抖动（观测到的PD掉线重协商约2秒）
     private static final long FLAP_WINDOW_MS = 5000;
     private long lastPowerDisconnectedTime = 0;
+    // 常亮模式下重新拉起动画前，距上次启动至少间隔这么久（给正在进行的启动留时间，也避免反复拉起闪烁）
+    private static final long RELAUNCH_GRACE_MS = 5000;
+    // 非常亮模式下守护本轮动画的最长时间，之后不再重新拉起
+    private static final long SINGLE_SESSION_GUARD_MS = 30000;
+    private long wakeupLoopStartTime = 0;
+    // 常亮模式下重新拉起后动画可见不足这么久就被系统移除，视为失败
+    private static final long RELAUNCH_MIN_VISIBLE_MS = 3000;
+    // 连续失败这么多次就暂停重新拉起，直到用户重新点亮背屏，避免与HyperOS无限拉锯闪烁
+    private static final int MAX_FAILED_RELAUNCHES = 2;
+    private int failedRelaunches = 0;
+    private boolean relaunchSuspended = false;
+    private boolean rearWasOnLastTick = false;
     private final Handler debounceHandler = new Handler(android.os.Looper.getMainLooper());
     private final Runnable pendingChargingRunnable = new Runnable() {
         @Override
@@ -237,11 +249,9 @@ public class ChargingService extends Service {
             
             showChargingOnRearScreen(batteryLevel, isLocked);
             
-            // V3.5: 如果开启了充电动画常亮，启动唤醒和更新循环
-            if (chargingAlwaysOnEnabled) {
-                Log.d(TAG, "充电动画常亮已开启，启动wakeup循环");
-                startWakeupAndUpdateLoop();
-            }
+            // V3.5: 启动唤醒和更新循环（非常亮模式下只守护本轮动画完整播放完）
+            Log.d(TAG, "启动wakeup循环，充电动画常亮: " + chargingAlwaysOnEnabled);
+            startWakeupAndUpdateLoop();
         }
     };
 
@@ -407,6 +417,7 @@ public class ChargingService extends Service {
         // 只在确认TaskService可用、动画确实要开始播放时才记录冷却时间戳，
         // 避免因TaskService未就绪等临时失败而误锁住后续6秒内的重试
         lastChargingAnimationTime = System.currentTimeMillis();
+        RearScreenChargingActivity.resetSelfFinished();
 
         acquireWakeLock(8000);
         try {
@@ -452,9 +463,7 @@ public class ChargingService extends Service {
             // 只有这条命令能把它点亮（等同双击唤醒），与NotificationService一致。
             // 背屏原本熄灭时，唤醒完成那一刻HyperOS会把SubScreenLauncher拉到前台并移除我们的任务，
             // 所以要等唤醒完成（实测约1.5秒）再启动动画；背屏已亮则无需等待。
-            android.view.Display rearDisplay = ((android.hardware.display.DisplayManager)
-                    getSystemService(Context.DISPLAY_SERVICE)).getDisplay(1);
-            boolean rearWasOn = rearDisplay != null && rearDisplay.getState() == android.view.Display.STATE_ON;
+            boolean rearWasOn = isRearDisplayOn();
             try {
                 taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
                 if (!rearWasOn) {
@@ -511,6 +520,9 @@ public class ChargingService extends Service {
                     String moveCmd = "am display move-stack " + chargingTaskId + " 1";
                     taskService.executeShellCommand(moveCmd);
                     Thread.sleep(40); // 等待移动完成
+                    // 锁屏时单纯唤醒的背屏约1秒后会自己熄灭，上面等唤醒完成的1.5秒里就已经黑了；
+                    // 动画落到背屏后再唤醒一次，此时由FLAG_KEEP_SCREEN_ON保持常亮，也不会被系统移除
+                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
                     
                     // 4.4: 只在锁屏时关闭主屏（亮屏时不需要关闭）
                     if (isLocked) {
@@ -608,30 +620,66 @@ public class ChargingService extends Service {
         }
         
         isWakeupRunning = true;
+        wakeupLoopStartTime = System.currentTimeMillis();
+        failedRelaunches = 0;
+        relaunchSuspended = false;
+        rearWasOnLastTick = isRearDisplayOn();
         
         wakeupRunnable = new Runnable() {
             @Override
             public void run() {
                 if (!isWakeupRunning) return;
                 
-                // 检查开关状态
-                boolean enabled = prefs.getBoolean("charging_always_on_enabled", false);
-                if (!enabled) {
-                    Log.d(TAG, "充电动画常亮已关闭，停止循环");
+                // 非常亮模式：本轮动画自己结束了（8秒到时/被通知打断）或超过守护时长，就停止循环
+                boolean alwaysOn = prefs.getBoolean("charging_always_on_enabled", false);
+                if (!alwaysOn && (RearScreenChargingActivity.isSelfFinished()
+                        || System.currentTimeMillis() - wakeupLoopStartTime > SINGLE_SESSION_GUARD_MS)) {
+                    Log.d(TAG, "非常亮模式，本轮充电动画已结束，停止循环");
                     stopWakeupLoop();
                     return;
                 }
                 
-                // 发送wakeup命令
-                try {
-                    if (taskService != null) {
-                        taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                        Log.d(TAG, "✓ Wakeup sent");
-                    } else {
-                        Log.w(TAG, "⚠️ TaskService is null, skipping wakeup");
+                // 背屏从熄灭变为点亮（用户双击唤醒），解除暂停
+                boolean rearOn = isRearDisplayOn();
+                if (relaunchSuspended && rearOn && !rearWasOnLastTick) {
+                    Log.d(TAG, "背屏被重新点亮，恢复重新拉起");
+                    relaunchSuspended = false;
+                    failedRelaunches = 0;
+                }
+                rearWasOnLastTick = rearOn;
+
+                if (RearScreenChargingActivity.isShowing()) {
+                    if (System.currentTimeMillis() - RearScreenChargingActivity.getShownSince() > RELAUNCH_MIN_VISIBLE_MS) {
+                        failedRelaunches = 0;
+                        relaunchSuspended = false;
                     }
-                } catch (Throwable t) {
-                    Log.w(TAG, "发送wakeup失败: " + t.getMessage());
+                    // 发送wakeup命令（只在动画可见时保持背屏常亮）
+                    try {
+                        if (taskService != null) {
+                            taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                            Log.d(TAG, "✓ Wakeup sent");
+                        } else {
+                            Log.w(TAG, "⚠️ TaskService is null, skipping wakeup");
+                        }
+                    } catch (Throwable t) {
+                        Log.w(TAG, "发送wakeup失败: " + t.getMessage());
+                    }
+                } else if (rearOn && !relaunchSuspended && isPluggedIn(getApplicationContext())
+                        && System.currentTimeMillis() - lastChargingAnimationTime > RELAUNCH_GRACE_MS) {
+                    // 动画已不在背屏（上滑回桌面/休眠后被系统移除/通知结束后没恢复），背屏亮着就重新拉起，
+                    // 与媒体播放页的自动恢复一致。背屏熄灭时不唤醒，等用户自己双击点亮。
+                    RearAnimationManager.AnimationType current = RearAnimationManager.getCurrentAnimation();
+                    if (alwaysOn && RearScreenChargingActivity.getLastVisibleMs() < RELAUNCH_MIN_VISIBLE_MS
+                            && ++failedRelaunches >= MAX_FAILED_RELAUNCHES) {
+                        Log.d(TAG, "⏸️ 重新拉起连续被系统移除，暂停直到背屏被重新点亮");
+                        relaunchSuspended = true;
+                    } else if (current == RearAnimationManager.AnimationType.NONE
+                            || current == RearAnimationManager.AnimationType.CHARGING) {
+                        Log.d(TAG, "🔁 充电动画不可见且背屏亮着，重新拉起");
+                        RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.CHARGING);
+                        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+                        showChargingOnRearScreen(getBatteryLevel(getApplicationContext()), km != null && km.isKeyguardLocked());
+                    }
                 }
                 
                 // 更新充电动画的电量显示
@@ -654,6 +702,12 @@ public class ChargingService extends Service {
         Log.d(TAG, "✓ Wakeup and update loop started");
     }
     
+    private boolean isRearDisplayOn() {
+        android.view.Display rearDisplay = ((android.hardware.display.DisplayManager)
+                getSystemService(Context.DISPLAY_SERVICE)).getDisplay(1);
+        return rearDisplay != null && rearDisplay.getState() == android.view.Display.STATE_ON;
+    }
+
     // V3.5: 停止唤醒循环
     private void stopWakeupLoop() {
         isWakeupRunning = false;
