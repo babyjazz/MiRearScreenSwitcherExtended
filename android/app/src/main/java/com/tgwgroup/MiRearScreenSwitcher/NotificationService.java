@@ -811,13 +811,6 @@ public class NotificationService extends NotificationListenerService {
                 }
             }
 
-            try {
-                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                Thread.sleep(300);
-            } catch (Throwable t) {
-                Log.w(TAG, "唤醒背屏失败: " + t.getMessage());
-            }
-
             RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.MEDIA);
 
             String componentName = getPackageName() + "/" + RearScreenMediaActivity.class.getName();
