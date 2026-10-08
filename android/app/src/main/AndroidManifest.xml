@@ -156,6 +156,12 @@
             android:name=".UriCommandService"
             android:enabled="true"
             android:exported="false"/>
+
+        <!-- PHASE 1 THROWAWAY: Option A overlay prototype host. Delete after device checks. -->
+        <service
+            android:name=".RearOverlayPrototypeService"
+            android:enabled="true"
+            android:exported="false"/>
         
         <!-- V2.7: 背屏录屏服务（前台Service+悬浮窗） -->
         <service
