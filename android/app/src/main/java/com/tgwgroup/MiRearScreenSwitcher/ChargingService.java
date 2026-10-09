@@ -178,6 +178,8 @@ public class ChargingService extends Service {
                 return;
             }
             Log.d(TAG, "🔌 Power disconnected, finishing charging animation");
+            // Unplug confirmed: a reconnect after this is a fresh plug-in, not a flap
+            lastPowerDisconnectedTime = 0;
             debounceHandler.removeCallbacksAndMessages(null);
             stopWakeupLoop();
             RearHost.hide(ChargingService.this, RearStack.Type.CHARGING);
