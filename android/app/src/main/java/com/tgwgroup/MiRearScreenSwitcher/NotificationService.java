@@ -98,6 +98,26 @@ public class NotificationService extends NotificationListenerService {
         mediaUpdateHandler.postDelayed(pendingMediaUpdate, MEDIA_UPDATE_DEBOUNCE_MS);
     }
 
+    // Media is the idle page: callbacks only fire on change and the first show can be dropped (TaskService not bound yet,
+    // metadata not ready, failed launch), so re-check periodically and put playing media back on the stack if missing.
+    private static final long MEDIA_RECONCILE_MS = 5000;
+    private final Runnable mediaReconcile = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (mediaSessionManager != null && !RearStack.contains(RearStack.Type.MEDIA)) {
+                    pickActiveMediaController(mediaSessionManager.getActiveSessions(new ComponentName(NotificationService.this, NotificationService.class)));
+                    if (activeMediaController != null) {
+                        showMediaOnRearScreen(activeMediaController.getMetadata(), activeMediaController.getPlaybackState());
+                    }
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "Media reconcile failed: " + t.getMessage());
+            }
+            mediaUpdateHandler.postDelayed(this, MEDIA_RECONCILE_MS);
+        }
+    };
+
     private final MediaController.Callback mediaControllerCallback = new MediaController.Callback() {
         @Override
         public void onMetadataChanged(MediaMetadata metadata) {
@@ -345,6 +365,7 @@ public class NotificationService extends NotificationListenerService {
             mediaSessionManager.addOnActiveSessionsChangedListener(activeSessionsChangedListener, listenerComponent);
             // The listener only sees future changes; manually grab currently active sessions at startup
             pickActiveMediaController(mediaSessionManager.getActiveSessions(listenerComponent));
+            mediaUpdateHandler.postDelayed(mediaReconcile, MEDIA_RECONCILE_MS);
         } catch (Throwable t) {
             Log.w(TAG, "Failed to register MediaSession listener: " + t.getMessage());
         }
@@ -672,6 +693,7 @@ public class NotificationService extends NotificationListenerService {
             if (pendingMediaUpdate != null) {
                 mediaUpdateHandler.removeCallbacks(pendingMediaUpdate);
             }
+            mediaUpdateHandler.removeCallbacks(mediaReconcile);
             detachMediaController();
         } catch (Throwable t) {
             Log.w(TAG, "Failed to unregister MediaSession listener: " + t.getMessage());
