@@ -211,25 +211,28 @@ public class NotificationService extends NotificationListenerService {
             if (!Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
                 return;
             }
+            Log.d(TAG, "Screen off received");
             // If a rear task is already running, do not interfere; avoids fighting RearScreenKeeperService's keep-alive
             if (RearScreenBroadcastReceiver.hasActiveTask()) {
+                Log.d(TAG, "Screen off: rear task active, not waking");
                 return;
             }
             if (!prefs.getBoolean("wake_on_lock_enabled", false)) {
+                Log.d(TAG, "Screen off: wake_on_lock disabled");
                 return;
             }
             try {
-                if (taskService == null) return;
-                if (activeMediaController != null) {
-                    // When media is playing, just waking the screen does not guarantee the media UI is what shows
-                    // (the rear screen has its own on/off timing and easily races the official Launcher),
-                    // so re-show the media UI to guarantee it is what appears on the locked rear screen.
-                    lastMediaSignature = null; // force a re-show even though nothing changed
-                    scheduleShowMediaOnRearScreen(activeMediaController.getMetadata(), activeMediaController.getPlaybackState());
-                } else {
-                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                    Log.d(TAG, "✓ Woke rear screen while locked");
+                if (taskService == null) {
+                    Log.w(TAG, "Screen off: TaskService unavailable, cannot wake rear");
+                    return;
                 }
+                // Media page already on the rear: leave it alone, waking would just bring up the home screen
+                if (RearStack.contains(RearStack.Type.MEDIA)) {
+                    Log.d(TAG, "Screen off: media showing, not waking");
+                    return;
+                }
+                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                Log.d(TAG, "✓ Woke rear screen while locked");
             } catch (Throwable t) {
                 Log.w(TAG, "Failed to wake rear screen while locked: " + t.getMessage());
             }
