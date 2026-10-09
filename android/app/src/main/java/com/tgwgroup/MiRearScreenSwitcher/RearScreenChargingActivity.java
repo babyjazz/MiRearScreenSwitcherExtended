@@ -270,32 +270,10 @@ public class RearScreenChargingActivity extends Activity {
     }
 
     @Override
-    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        // When move-stack lands on the rear (configChanges include density/screenSize), this runs; onResume may not
-        recreateIfMovedToRear();
-    }
-
-    /**
-     * After the main-screen placeholder is move-stacked to the rear, onCreate already returned early (no content, no unplug receiver),
-     * so recreate on the rear via the full onCreate rear branch.
-     */
-    private boolean recreateIfMovedToRear() {
-        if (chargingContainer != null || isFinishing() || getDisplay() == null || getDisplay().getDisplayId() != 1) {
-            return false;
-        }
-        Log.d(TAG, "🔄 Placeholder instance reached the rear; recreating content");
-        recreate();
-        return true;
-    }
-
-    @Override
     protected void onResume() {
         super.onResume();
         long resumeTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] 🟢 onResume", resumeTime, resumeTime));
-
-        if (recreateIfMovedToRear()) return;
 
         // V3.3: re-assert window flags (keep on + show when locked)
         getWindow().addFlags(

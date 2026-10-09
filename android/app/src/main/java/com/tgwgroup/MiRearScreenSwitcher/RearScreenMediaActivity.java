@@ -109,26 +109,8 @@ public class RearScreenMediaActivity extends Activity {
     }
 
     @Override
-    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        // When move-stack lands on the rear display (configChanges include density/screenSize), this runs; onResume may not
-        recreateIfMovedToRear();
-    }
-
-    /** After the main-display placeholder is move-stacked to the rear, onCreate already returned early (no content); rebuild once on the rear display. */
-    private boolean recreateIfMovedToRear() {
-        if (findViewById(R.id.media_container) != null || isFinishing()
-                || getDisplay() == null || getDisplay().getDisplayId() != 1) {
-            return false;
-        }
-        recreate();
-        return true;
-    }
-
-    @Override
     protected void onResume() {
         super.onResume();
-        if (recreateIfMovedToRear()) return;
         // Back in the foreground (user returned or the recovery fired); cancel the queued recover task
         if (pendingRecovery != null) {
             recoveryHandler.removeCallbacks(pendingRecovery);

@@ -419,38 +419,16 @@ public class ChargingService extends Service {
         lastChargingAnimationTime = System.currentTimeMillis();
         RearScreenChargingActivity.resetSelfFinished();
 
-        // Phase 2 (N1): the main thread only checks state and queues; shell/sleep/polling all run on a background thread
-        final ITaskService ts = taskService;
-        long startTime = System.currentTimeMillis();
-        Log.d(TAG, String.format("[%tT.%tL] Starting the charging animation", startTime, startTime));
-        boolean rearWasOn = isRearDisplayOn();
-
         acquireWakeLock(8000);
-        try {
-            if (!RearShell.post(() -> runChargingLaunchShell(ts, level, isLocked, rearWasOn, startTime))) {
-                releaseWakeLock();
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error showing charging", e);
-            releaseWakeLock();
-        }
-    }
-
-    /**
-     * Background thread that runs the charging launch shell (wake + main placeholder + poll + move-stack).
-     * The only place allowed to Thread.sleep/executeShellCommand; all on the RearShell background thread.
-     * When done, releaseWakeLock is posted back to the main thread (state work stays on the main thread).
-     */
-    private void runChargingLaunchShell(ITaskService ts, int level, boolean isLocked, boolean rearWasOn, long startTime) {
         try {
             // Step 1: check whether an app is cast onto the rear screen
             String lastTask = SwitchToRearTileService.getLastMovedTask();
             int rearTaskId = -1;
-
+            
             if (lastTask != null && lastTask.contains(":")) {
                 try {
-                    String rearForegroundApp = ts.getForegroundAppOnDisplay(1);
-
+                    String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
+                    
                     // If the rear foreground is still the charging animation, the previous animation has not fully died; reuse lastTask
                     if (rearForegroundApp != null && rearForegroundApp.contains("RearScreenChargingActivity")) {
                         Log.d(TAG, "Charging animation showing; using lastTask: " + lastTask);
@@ -466,28 +444,18 @@ public class ChargingService extends Service {
                     Log.w(TAG, "Failed to check the rear app", e);
                 }
             }
-
+            
             // Step 2: if an app is cast, pause RearScreenKeeperService monitoring
             if (rearTaskId > 0) {
                 RearScreenKeeperService.pauseMonitoring();
             }
-
+            
             // Step 3: disable the official Launcher
-            try {
-                ts.disableSubScreenLauncher();
-            } catch (Throwable t) {
-                Log.w(TAG, "disableSubScreenLauncher failed: " + t.getMessage());
-            }
-
-            // Step 4: MRSN strategy - launch invisibly on the main screen, then move to the rear
-            String componentName = getPackageName() + "/" + RearScreenChargingActivity.class.getName();
-            String mainCmd = String.format(
-                "am start -n %s --ei batteryLevel %d --ei rearTaskId %d",
-                componentName,
-                level,
-                rearTaskId
-            );
-
+            taskService.disableSubScreenLauncher();
+            
+            long startTime = System.currentTimeMillis();
+            Log.d(TAG, String.format("[%tT.%tL] Starting the charging animation", startTime, startTime));
+            
             // V3.3: removed all wake/unlock code to avoid jumping to the passcode screen while locked
 
             // Wake the rear screen first, then launch the Activity, so the animation lands on an already-lit screen.
@@ -495,8 +463,9 @@ public class ChargingService extends Service {
             // only this command lights it (same as a double-tap wake), consistent with NotificationService.
             // If the rear screen was off, HyperOS pulls SubScreenLauncher to the front and removes our task the moment the wake completes,
             // so wait for the wake (measured ~1.5s) before starting the animation; if the screen is already on, no wait needed.
+            boolean rearWasOn = isRearDisplayOn();
             try {
-                ts.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
                 if (!rearWasOn) {
                     Thread.sleep(1500);
                 }
@@ -506,27 +475,35 @@ public class ChargingService extends Service {
                 Log.w(TAG, "Failed to wake the rear screen: " + t.getMessage());
             }
 
-            // 4.1: launch on the main screen first (the Activity hides itself in onCreate)
+            // Step 4: MRSN strategy - launch invisibly on the main screen, then move to the rear
             try {
+                // 4.1: launch on the main screen first (the Activity hides itself in onCreate)
+                String componentName = getPackageName() + "/" + RearScreenChargingActivity.class.getName();
+                String mainCmd = String.format(
+                    "am start -n %s --ei batteryLevel %d --ei rearTaskId %d",
+                    componentName,
+                    level,
+                    rearTaskId
+                );
+                
                 Log.d(TAG, String.format("[%tT.%tL] 🔵 Launching the Activity on the main display", System.currentTimeMillis(), System.currentTimeMillis()));
-                ts.executeShellCommand(mainCmd);
-
+                taskService.executeShellCommand(mainCmd);
+                
                 // 4.2: poll for the taskId (up to 60 x 30ms = 1800ms; resend the command mid-way)
                 String chargingTaskId = null;
                 int attempts = 0;
                 int maxAttempts = 60;
-
+                
                 while (chargingTaskId == null && attempts < maxAttempts) {
                     Thread.sleep(30);
-                    String result = ts.executeShellCommandWithResult(
-                        "am stack list | grep -A2 'displayId=0' | grep RearScreenChargingActivity");
+                    String result = taskService.executeShellCommandWithResult("am stack list | grep RearScreenChargingActivity");
                     if (result != null && !result.trim().isEmpty()) {
                         // Parse taskId=XXX
                         java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("taskId=(\\d+)");
                         java.util.regex.Matcher matcher = pattern.matcher(result);
                         if (matcher.find()) {
                             chargingTaskId = matcher.group(1);
-                            Log.d(TAG, String.format("[%tT.%tL] Found taskId=%s (attempt %d)",
+                            Log.d(TAG, String.format("[%tT.%tL] Found taskId=%s (attempt %d)", 
                                 System.currentTimeMillis(), System.currentTimeMillis(), chargingTaskId, attempts + 1));
                             break;
                         }
@@ -534,45 +511,47 @@ public class ChargingService extends Service {
                     attempts++;
                     if (attempts == 20 || attempts == 40) { // resend the launch command once or twice mid-way
                         Log.d(TAG, String.format("[%tT.%tL] Re-sending the main-screen launch command", System.currentTimeMillis(), System.currentTimeMillis()));
-                        ts.executeShellCommand(mainCmd);
+                        taskService.executeShellCommand(mainCmd);
                     }
                 }
-
+                
                 if (chargingTaskId != null) {
                     // 4.3: move to the rear screen
                     String moveCmd = "am display move-stack " + chargingTaskId + " 1";
-                    ts.executeShellCommand(moveCmd);
+                    taskService.executeShellCommand(moveCmd);
                     Thread.sleep(40); // wait for the move to complete
                     // A rear screen woken while locked goes dark again by itself after ~1s, already black during the 1.5s wake wait;
                     // wake it once more after the animation lands, then FLAG_KEEP_SCREEN_ON keeps it lit and the system leaves it alone
-                    ts.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-
+                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                    
                     // 4.4: turn off the main screen only when locked (no need when it is already on)
                     if (isLocked) {
                         // Main-screen sleep removed
-                        Log.d(TAG, String.format("[%tT.%tL] Locked; main screen off",
+                        Log.d(TAG, String.format("[%tT.%tL] Locked; main screen off", 
                             System.currentTimeMillis(), System.currentTimeMillis()));
                     } else {
-                        Log.d(TAG, String.format("[%tT.%tL] Unlocked; keeping the main screen on",
+                        Log.d(TAG, String.format("[%tT.%tL] Unlocked; keeping the main screen on", 
                             System.currentTimeMillis(), System.currentTimeMillis()));
                     }
-
+                    
                     long endTime = System.currentTimeMillis();
-                    Log.d(TAG, String.format("[%tT.%tL] Charging animation moved to the rear (took %dms)",
+                    Log.d(TAG, String.format("[%tT.%tL] Charging animation moved to the rear (took %dms)", 
                         endTime, endTime, endTime - startTime));
                 } else {
-                    Log.e(TAG, String.format("[%tT.%tL] Could not find taskId after %d attempts",
+                    Log.e(TAG, String.format("[%tT.%tL] Could not find taskId after %d attempts", 
                         System.currentTimeMillis(), System.currentTimeMillis(), attempts));
                 }
             } catch (Exception e) {
                 long errorTime = System.currentTimeMillis();
                 Log.e(TAG, String.format("[%tT.%tL] Failed to start the charging animation", errorTime, errorTime), e);
             }
+        } catch (Exception e) {
+            Log.e(TAG, "Error showing charging", e);
         } finally {
-            // Post releaseWakeLock back to the main thread (state/UI work stays on the main thread)
-            RearShell.postToMain(() -> releaseWakeLock());
+            releaseWakeLock();
         }
     }
+    
     @Override
     public void onDestroy() {
         super.onDestroy();
@@ -675,18 +654,15 @@ public class ChargingService extends Service {
                         relaunchSuspended = false;
                     }
                     // Send the wakeup command (keeps the rear screen on only while the animation is visible)
-                    if (taskService != null) {
-                        final ITaskService ts = taskService;
-                        RearShell.post(() -> {
-                            try {
-                                ts.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                                Log.d(TAG, "✓ Wakeup sent");
-                            } catch (Throwable t) {
-                                Log.w(TAG, "Failed to send wakeup: " + t.getMessage());
-                            }
-                        });
-                    } else {
-                        Log.w(TAG, "⚠️ TaskService is null, skipping wakeup");
+                    try {
+                        if (taskService != null) {
+                            taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                            Log.d(TAG, "✓ Wakeup sent");
+                        } else {
+                            Log.w(TAG, "⚠️ TaskService is null, skipping wakeup");
+                        }
+                    } catch (Throwable t) {
+                        Log.w(TAG, "Failed to send wakeup: " + t.getMessage());
                     }
                 } else if (rearOn && !relaunchSuspended && isPluggedIn(getApplicationContext())
                         && System.currentTimeMillis() - lastChargingAnimationTime > RELAUNCH_GRACE_MS) {

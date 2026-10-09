@@ -229,15 +229,8 @@ public class NotificationService extends NotificationListenerService {
                     // so re-show the media UI to guarantee it is what appears on the locked rear screen.
                     scheduleShowMediaOnRearScreen(activeMediaController.getMetadata(), activeMediaController.getPlaybackState());
                 } else {
-                    final ITaskService ts = taskService;
-                    RearShell.post(() -> {
-                        try {
-                            ts.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                            Log.d(TAG, "✓ Woke rear screen while locked");
-                        } catch (Throwable t) {
-                            Log.w(TAG, "Failed to wake rear screen while locked: " + t.getMessage());
-                        }
-                    });
+                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                    Log.d(TAG, "✓ Woke rear screen while locked");
                 }
             } catch (Throwable t) {
                 Log.w(TAG, "Failed to wake rear screen while locked: " + t.getMessage());
@@ -618,63 +611,33 @@ public class NotificationService extends NotificationListenerService {
             android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
             boolean isLocked = km != null && km.isKeyguardLocked();
             
-            // V3.3: removed wake code to avoid jumping to the passcode screen while locked
-            // V3.3: removed the `wm dismiss-keyguard` command to avoid jumping to the passcode screen while locked
-            
-            // 2) pick the launch strategy from lock state and foreground app (the main thread only checks state and builds commands;
-            //    the actual shell/sleep/polling runs on the background thread, see runNotificationLaunchShell)
-            String componentName = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
-            
-            // ✅ Unified strategy: launch directly on the rear screen regardless of lock state (avoids DPI mismatch)
-            // Launching directly on the rear screen ensures the layout uses the correct DPI (450), avoiding size issues from a main-screen move
-            
-            // Ensure the dark-mode setting is current
-            notificationDarkMode = prefs.getBoolean("notification_dark_mode", false);
-            Log.d(TAG, "🌙 Current dark-mode setting: " + notificationDarkMode);
-            
-            // Phase 2 (N1): wake + launch + poll + move-stack run serially on a background thread
-            final ITaskService ts = taskService;
-            final String finalComponentName = componentName;
-            final String finalPackageName = packageName;
-            final String finalTitle = title;
-            final String finalText = text;
-            final long finalWhen = when;
-            final boolean finalSkipWake = skipWake;
-            final boolean finalIsLocked = isLocked;
-            final boolean finalDarkMode = notificationDarkMode;
-            if (!RearShell.post(() -> runNotificationLaunchShell(ts, finalComponentName, finalPackageName,
-                    finalTitle, finalText, finalWhen, finalSkipWake, finalIsLocked, finalDarkMode))) {
-                releaseWakeLock();
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "❌ Failed to show the rear notification", e);
-            releaseWakeLock();
-        }
-    }
-
-    /**
-     * Background thread that runs the notification launch shell (wake + direct rear launch + poll + main-placeholder/move-stack fallback).
-     * The only place allowed to Thread.sleep/executeShellCommand; all on the RearShell background thread.
-     * When done, releaseWakeLock is posted back to the main thread (state/UI work stays on the main thread).
-     */
-    private void runNotificationLaunchShell(ITaskService ts, String componentName, String packageName,
-                                            String title, String text, long when, boolean skipWake,
-                                            boolean isLocked, boolean darkMode) {
-        try {
-            // Pause monitoring so it does not get killed (all TaskService work is on the background thread)
+            // Read the main-screen foreground app (guards the same-package-in-foreground case)
+            String mainForegroundApp = null;
             try {
+                mainForegroundApp = taskService.getForegroundAppOnDisplay(0);
+                Log.d(TAG, "📱 Main-screen foreground app: " + mainForegroundApp);
+            } catch (Throwable t) {
+                Log.w(TAG, "Failed to get the main-screen foreground app: " + t.getMessage());
+            }
+            
+            // V3.3: removed wake code to avoid jumping to the passcode screen while locked
+            
+            try {
+                // Pause monitoring so it does not get killed
                 RearScreenKeeperService.pauseMonitoring();
             } catch (Throwable t) {
                 Log.w(TAG, "pauseMonitoring failed: " + t.getMessage());
             }
-
-            // Disable the official rear-screen Launcher so it does not steal the screen
+            
             try {
-                ts.disableSubScreenLauncher();
+                // Disable the official rear-screen Launcher so it does not steal the screen
+                taskService.disableSubScreenLauncher();
             } catch (Throwable t) {
                 Log.w(TAG, "disableSubScreenLauncher failed: " + t.getMessage());
             }
-
+            
+            // V3.3: removed the `wm dismiss-keyguard` command to avoid jumping to the passcode screen while locked
+            
             // Wake the rear screen first, then launch the Activity, so the animation lands on an already-lit screen.
             // Window flags (FLAG_TURN_SCREEN_ON) do nothing while the rear screen is DOZE/DOZE_SUSPEND;
             // only this command lights it (same as a double-tap wake), consistent with RearScreenKeeperService/AlwaysWakeUpService.
@@ -683,7 +646,7 @@ public class NotificationService extends NotificationListenerService {
             // and waking again just adds a pointless wait that looks like a "wake animation interrupted the notification".
             if (!skipWake) {
                 try {
-                    ts.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
                     // Wait for the physical wake (backlight ramp) so the animation does not draw before the screen is lit
                     Thread.sleep(300);
                 } catch (Throwable t) {
@@ -691,6 +654,30 @@ public class NotificationService extends NotificationListenerService {
                 }
             }
 
+            // 2) pick the launch strategy from lock state and foreground app
+            String componentName = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
+            
+            // When locked and the main-screen foreground is this notification's own app, skip the main-placeholder strategy and launch directly on the rear to avoid a system conflict
+            // Exact package match to avoid false positives (e.g. com.tencent.mm vs com.tencent.mobileqq)
+            boolean forceDirectRearDueToSameApp = false;
+            if (isLocked && mainForegroundApp != null && !mainForegroundApp.isEmpty()) {
+                // Extract the package of the main-screen foreground app (format may be "com.example.app/com.example.app.MainActivity")
+                String foregroundPackage = mainForegroundApp;
+                if (mainForegroundApp.contains("/")) {
+                    foregroundPackage = mainForegroundApp.split("/")[0];
+                }
+                forceDirectRearDueToSameApp = foregroundPackage.equals(packageName);
+                Log.d(TAG, String.format("🔍 Locked same-package check: main foreground=[%s] vs notification package=[%s] -> %s",
+                    foregroundPackage, packageName, forceDirectRearDueToSameApp ? "match (direct rear)" : "no match (placeholder)"));
+            }
+            
+            // ✅ Unified strategy: launch directly on the rear screen regardless of lock state (avoids DPI mismatch)
+            // Launching directly on the rear screen ensures the layout uses the correct DPI (450), avoiding size issues from a main-screen move
+            
+            // Ensure the dark-mode setting is current
+            notificationDarkMode = prefs.getBoolean("notification_dark_mode", false);
+            Log.d(TAG, "🌙 Current dark-mode setting: " + notificationDarkMode);
+            
             String directCmd = String.format(
                 "am start --display 1 -n %s --es packageName \"%s\" --es title \"%s\" --es text \"%s\" --el when %d --ez darkMode %b",
                 componentName,
@@ -698,42 +685,20 @@ public class NotificationService extends NotificationListenerService {
                 title.replace("\"", "\\\""),
                 text.replace("\"", "\\\""),
                 when,
-                darkMode
+                notificationDarkMode
             );
-
-            // Reuse-first (CLAUDE.md): if the notification Activity already has a live task on the rear
-            // display, NEVER launch with --display 1. HyperOS ActivityStarterImpl treats that as a brand-new
-            // rear-task launch and rejects it, then our fallback can leave a placeholder on the main display.
-            // A bare `am start -n` reuses the existing task via onNewIntent and refreshes the content.
-            String existingNotif = ts.executeShellCommandWithResult(
-                "am stack list | grep -A2 'displayId=1' | grep RearScreenNotificationActivity");
-            if (existingNotif != null && !existingNotif.trim().isEmpty()) {
-                String reuseCmd = String.format(
-                        "am start -n %s --es packageName \"%s\" --es title \"%s\" --es text \"%s\" --el when %d --ez darkMode %b",
-                        componentName,
-                        packageName,
-                        title.replace("\"", "\\\""),
-                        text.replace("\"", "\\\""),
-                        when,
-                        darkMode
-                );
-                ts.executeShellCommand(reuseCmd);
-                Log.d(TAG, "🔁 Notification Activity already on rear; reusing via onNewIntent");
-                return;
-            }
-
+            
             boolean started = false;
             // When locked, HyperOS always rejects --display 1 (ActivityStarterImpl); go straight to the main-placeholder+move below and save ~1s of wasted tries.
             // Unlocked: launch once, then poll. The Activity only shows up in `am stack list` after ~0.5s;
             // repeating --display 1 during that window can create phantom tasks.
             if (!isLocked) {
                 try {
-                    ts.executeShellCommand(directCmd);
+                    taskService.executeShellCommand(directCmd);
                     Log.d(TAG, "✓ Unlocked; launching the notification Activity directly on the rear");
                     for (int i = 0; i < 6 && !started; i++) {
                         try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                        String check = ts.executeShellCommandWithResult(
-                            "am stack list | grep -A2 'displayId=1' | grep RearScreenNotificationActivity");
+                        String check = taskService.executeShellCommandWithResult("am stack list | grep RearScreenNotificationActivity");
                         started = check != null && !check.trim().isEmpty();
                     }
                     Log.d(TAG, started ? "✓ Notification animation started on the rear" : "⚠️ Direct rear launch did not appear");
@@ -741,11 +706,12 @@ public class NotificationService extends NotificationListenerService {
                     Log.w(TAG, "Direct rear launch failed: " + t.getMessage());
                 }
             }
-
+            
             // If the direct launch failed, use the fallback (main placeholder + move)
             if (!started) {
                 Log.w(TAG, isLocked ? "🔒 Locked; using main placeholder + move" : "⚠️ Direct rear launch failed; falling back to main placeholder + move");
-
+                
+                // Launch on the main screen (the Activity acts as its own placeholder)
                 String startOnMainCmd = String.format(
                     "am start -n %s --es packageName \"%s\" --es title \"%s\" --es text \"%s\" --el when %d --ez darkMode %b",
                     componentName,
@@ -753,20 +719,19 @@ public class NotificationService extends NotificationListenerService {
                     title.replace("\"", "\\\""),
                     text.replace("\"", "\\\""),
                     when,
-                    darkMode
+                    notificationDarkMode
                 );
                 Log.d(TAG, "🔵 Launching the notification Activity on the main display (placeholder)");
-                ts.executeShellCommand(startOnMainCmd);
+                taskService.executeShellCommand(startOnMainCmd);
                 try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-
+                
                 // Poll for the taskId
                 String notifTaskId = null;
                 int attempts = 0;
                 int maxAttempts = 60;
                 while (notifTaskId == null && attempts < maxAttempts) {
                     try { Thread.sleep(40); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                    String result = ts.executeShellCommandWithResult(
-                        "am stack list | grep -A2 'displayId=0' | grep RearScreenNotificationActivity");
+                    String result = taskService.executeShellCommandWithResult("am stack list | grep RearScreenNotificationActivity");
                     if (result != null && !result.trim().isEmpty()) {
                         java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("taskId=(\\d+)");
                         java.util.regex.Matcher matcher = pattern.matcher(result);
@@ -778,16 +743,17 @@ public class NotificationService extends NotificationListenerService {
                     }
                     attempts++;
                 }
-
+                
                 if (notifTaskId != null) {
+                    // 4) move to the rear screen
                     String moveCmd = "am display move-stack " + notifTaskId + " 1";
-                    ts.executeShellCommand(moveCmd);
+                    taskService.executeShellCommand(moveCmd);
                     try { Thread.sleep(60); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-
+                    
                     // 5) turn off the main screen while locked to avoid focus stealing
                     // main-screen sleep removed
                     Log.d(TAG, "🔒 Locked; main screen off");
-
+                    
                     Log.d(TAG, "✓ Notification animation moved to the rear");
                 } else {
                     Log.e(TAG, "❌ Could not find the notification Activity taskId; last-ditch direct rear launch");
@@ -799,9 +765,9 @@ public class NotificationService extends NotificationListenerService {
                             title.replace("\"", "\\\""),
                             text.replace("\"", "\\\""),
                             when,
-                            darkMode
+                            notificationDarkMode
                         );
-                        ts.executeShellCommand(fallbackCmd);
+                        taskService.executeShellCommand(fallbackCmd);
                         Log.d(TAG, "🟦 Tried direct --display 1 launch (fallback)");
                     } catch (Throwable t) {
                         Log.w(TAG, "Fallback direct rear launch failed: " + t.getMessage());
@@ -811,8 +777,7 @@ public class NotificationService extends NotificationListenerService {
         } catch (Exception e) {
             Log.e(TAG, "❌ Failed to show the rear notification", e);
         } finally {
-            // Post releaseWakeLock back to the main thread (state/UI work stays on the main thread)
-            RearShell.postToMain(() -> releaseWakeLock());
+            releaseWakeLock();
         }
     }
 
@@ -863,63 +828,29 @@ public class NotificationService extends NotificationListenerService {
             android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
             boolean isLocked = km != null && km.isKeyguardLocked();
 
-            // Phase 2 (N1): launch/poll/fallback all run serially on the background thread; the main thread no longer blocks
-            final ITaskService ts = taskService;
-            final String finalComponentName = componentName;
-            final String finalExtras = extras;
-            final String finalTitle = title;
-            RearShell.post(() -> runMediaLaunchShell(ts, finalComponentName, finalExtras, isLocked, finalTitle));
-        } catch (Exception e) {
-            Log.e(TAG, "❌ Failed to show rear media playback", e);
-        }
-    }
-
-    /**
-     * Background thread that runs the media launch shell (direct rear launch + poll + main-placeholder/move-stack fallback).
-     * The only place allowed to Thread.sleep/executeShellCommand; all on the RearShell background thread.
-     */
-    private void runMediaLaunchShell(ITaskService ts, String componentName, String extras, boolean isLocked, String title) {
-        try {
-            // Reuse-first (CLAUDE.md): if the component already has a live task on the rear display,
-            // NEVER launch with --display 1. HyperOS ActivityStarterImpl treats that as a brand-new
-            // rear-task launch and rejects it, then our fallback can leave a placeholder on the main
-            // display. A bare `am start -n` reuses the existing task via onNewIntent and fronts it.
-            String existing = ts.executeShellCommandWithResult(
-                "am stack list | grep -A2 'displayId=1' | grep RearScreenMediaActivity");
-            if (existing != null && !existing.trim().isEmpty()) {
-                ts.executeShellCommand("am start -n " + componentName + " " + extras);
-                Log.d(TAG, "🎵 RearScreenMediaActivity already on rear; reusing to refresh: " + title);
-                return;
-            }
-
             boolean started = false;
             if (!isLocked) {
-                ts.executeShellCommand("am start --display 1 -n " + componentName + " " + extras);
+                taskService.executeShellCommand("am start --display 1 -n " + componentName + " " + extras);
                 try { Thread.sleep(150); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                String check = ts.executeShellCommandWithResult(
-                    "am stack list | grep -A2 'displayId=1' | grep RearScreenMediaActivity");
+                String check = taskService.executeShellCommandWithResult("am stack list | grep RearScreenMediaActivity");
                 started = check != null && !check.trim().isEmpty();
             }
 
             if (!started) {
-                ts.executeShellCommand("am start -n " + componentName + " " + extras);
+                taskService.executeShellCommand("am start -n " + componentName + " " + extras);
                 try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 
-                // Only ever move a task that is really sitting on the MAIN display (the placeholder we
-                // just created). Grepping without a display filter can match a stale/phantom task that is
-                // ALREADY on the rear, so move-stack would no-op and the new placeholder stays on main.
                 String mediaTaskId = null;
                 for (int attempts = 0; attempts < 60 && mediaTaskId == null; attempts++) {
                     try { Thread.sleep(40); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                    String result = ts.executeShellCommandWithResult(
-                        "am stack list | grep -A2 'displayId=0' | grep RearScreenMediaActivity");
+                    String result = taskService.executeShellCommandWithResult("am stack list | grep RearScreenMediaActivity");
                     if (result != null && !result.trim().isEmpty()) {
                         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("taskId=(\\d+)").matcher(result);
                         if (matcher.find()) mediaTaskId = matcher.group(1);
                     }
                 }
                 if (mediaTaskId != null) {
-                    ts.executeShellCommand("am display move-stack " + mediaTaskId + " 1");
+                    taskService.executeShellCommand("am display move-stack " + mediaTaskId + " 1");
                 } else {
                     Log.w(TAG, "⚠️ Could not find the media Activity taskId");
                 }
