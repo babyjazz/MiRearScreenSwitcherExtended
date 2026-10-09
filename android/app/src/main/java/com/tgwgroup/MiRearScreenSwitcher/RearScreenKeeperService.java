@@ -296,9 +296,8 @@ public class RearScreenKeeperService extends Service implements SensorEventListe
                     // V15.2: check whether the rear display (displayId=1) foreground is still the monitored app
                     String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
 
-                    // V2.3: exclude charging/notification animations (temporary rear-screen owners; must not destroy the service)
-                    if (rearForegroundApp != null && (rearForegroundApp.contains("RearScreenChargingActivity")
-                            || rearForegroundApp.contains("RearScreenNotificationActivity"))) {
+                    // V2.3: exclude our rear host (charging/notification/media; temporary rear-screen owner; must not destroy the service
+                    if (rearForegroundApp != null && rearForegroundApp.contains("RearHostActivity")) {
                         // Charging animation is showing; skip this check
                         handler.postDelayed(this, CHECK_TASK_INTERVAL_MS);
                         return;

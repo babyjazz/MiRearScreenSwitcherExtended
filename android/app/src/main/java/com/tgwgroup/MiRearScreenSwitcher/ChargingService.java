@@ -24,7 +24,7 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.os.BatteryManager;
-import android.os.PowerManager;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Handler;
 import android.util.Log;
@@ -39,9 +39,8 @@ public class ChargingService extends Service {
     private static final String TAG = "ChargingService";
     private SharedPreferences prefs;
     private ITaskService taskService;
-    private PowerManager.WakeLock wakeLock;
     
-    // Static instance, accessible from RearScreenChargingActivity
+    // Static instance, accessible from other rear-screen classes
     private static ChargingService instance;
     
     // Prevent duplicate animation triggers (cooldown)
@@ -119,45 +118,15 @@ public class ChargingService extends Service {
         }
     };
     
-    // V3.5: resume-charging-animation broadcast receiver
-    private BroadcastReceiver resumeChargingReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if ("com.tgwgroup.MiRearScreenSwitcher.RESUME_CHARGING_ANIMATION".equals(intent.getAction())) {
-                Log.d(TAG, "🔋 Resume-charging broadcast received; preparing to restore");
-                
-                // Get the current battery level
-                int batteryLevel = getBatteryLevel(context);
-                
-                // Restart the charging animation after a delay
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    try {
-                        // Animation manager: start the charging animation
-                        RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.CHARGING);
-                        
-                        // Start the charging animation
-                        showChargingOnRearScreen(batteryLevel, false);
-                        
-                        // If always-on is enabled, start the wake loop
-                        if (chargingAlwaysOnEnabled) {
-                            Log.d(TAG, "💡 Always-on enabled; starting the wakeup loop");
-                            startWakeupAndUpdateLoop();
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Failed to restore the charging animation", e);
-                    }
-                }, 300);  // 300ms delay so the notification Activity is fully destroyed
-            }
-        }
-    };
-    
     private BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             
             if (Intent.ACTION_POWER_CONNECTED.equals(action)) {
-                // Reconnect within FLAP_WINDOW_MS after unplug = PD drop/renegotiation (a bad port does this roughly every 40s), not a real plug-in; skip the animation
+                // Reconnect within FLAP_WINDOW_MS after unplug = PD drop/renegotiation (a bad port does this roughly every 40s), not a real plug-in.
+                // A pending unplug is cancelled so a charging animation already on screen survives the flap; no new animation is started.
+                debounceHandler.removeCallbacks(pendingUnplugRunnable);
                 if (System.currentTimeMillis() - lastPowerDisconnectedTime < FLAP_WINDOW_MS) {
                     Log.d(TAG, "🔌 Power reconnected within " + FLAP_WINDOW_MS + "ms of disconnect, treating as flap");
                     return;
@@ -173,13 +142,10 @@ public class ChargingService extends Service {
                 // Unplugged during the debounce window: cancel the pending animation
                 debounceHandler.removeCallbacks(pendingChargingRunnable);
 
-                // Charger unplugged: destroy the charging animation immediately
-                Log.d(TAG, "🔌 Power disconnected, finishing charging animation");
-
-                // V3.5: stop the wake loop
-                stopWakeupLoop();
-
-                finishChargingAnimation();
+                // Debounced like connect: a PD flap reconnects within a couple of seconds and must not end the animation
+                debounceHandler.removeCallbacks(pendingUnplugRunnable);
+                debounceHandler.postDelayed(pendingUnplugRunnable, UNPLUG_DEBOUNCE_MS);
+                Log.d(TAG, "🔌 Power disconnected, debouncing " + UNPLUG_DEBOUNCE_MS + "ms");
             }
         }
     };
@@ -201,7 +167,22 @@ public class ChargingService extends Service {
     private int failedRelaunches = 0;
     private boolean relaunchSuspended = false;
     private boolean rearWasOnLastTick = false;
+    private static final long UNPLUG_DEBOUNCE_MS = 3000;
     private final Handler debounceHandler = new Handler(android.os.Looper.getMainLooper());
+    // Confirmed unplug: end the charging experience and cancel every pending retry
+    private final Runnable pendingUnplugRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (isPluggedIn(ChargingService.this)) {
+                Log.d(TAG, "⏸ Still plugged in after unplug debounce; ignoring");
+                return;
+            }
+            Log.d(TAG, "🔌 Power disconnected, finishing charging animation");
+            debounceHandler.removeCallbacksAndMessages(null);
+            stopWakeupLoop();
+            RearHost.hide(ChargingService.this, RearStack.Type.CHARGING);
+        }
+    };
     private final Runnable pendingChargingRunnable = new Runnable() {
         @Override
         public void run() {
@@ -238,16 +219,7 @@ public class ChargingService extends Service {
             int batteryLevel = getBatteryLevel(context);
             Log.d(TAG, "🔌 Power connected, battery: " + batteryLevel + "%");
 
-            // Animation manager: start the charging animation (returns the interrupted old one)
-            RearAnimationManager.AnimationType oldAnim = RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.CHARGING);
-            
-            // If an old animation must be interrupted, send the interrupt broadcast
-            if (oldAnim == RearAnimationManager.AnimationType.NOTIFICATION) {
-                Log.d(TAG, "Notification animation playing; sending the interrupt broadcast");
-                RearAnimationManager.sendInterruptBroadcast(ChargingService.this, RearAnimationManager.AnimationType.NOTIFICATION);
-            }
-            
-            showChargingOnRearScreen(batteryLevel, isLocked);
+            showChargingOnRearScreen(batteryLevel);
             
             // V3.5: start the wake/update loop (in one-shot mode, only guard until this animation finishes)
             Log.d(TAG, "Starting wakeup loop; charging always-on: " + chargingAlwaysOnEnabled);
@@ -293,14 +265,6 @@ public class ChargingService extends Service {
             registerReceiver(settingsReceiver, settingsFilter);
         }
         
-        // V3.5: register the resume-charging broadcast receiver
-        IntentFilter resumeFilter = new IntentFilter("com.tgwgroup.MiRearScreenSwitcher.RESUME_CHARGING_ANIMATION");
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(resumeChargingReceiver, resumeFilter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(resumeChargingReceiver, resumeFilter);
-        }
-        
         // V3.5: load the charging always-on setting
         chargingAlwaysOnEnabled = prefs.getBoolean("charging_always_on_enabled", false);
         wakeupHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -315,35 +279,6 @@ public class ChargingService extends Service {
     
     private static final int NOTIFICATION_ID = 1001; // shared ID with other services
 
-    private void acquireWakeLock(long timeoutMs) {
-        try {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (pm != null) {
-                if (wakeLock == null) {
-                    wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MRSS:ChargingWake");
-                    wakeLock.setReferenceCounted(false);
-                }
-                if (!wakeLock.isHeld()) {
-                    wakeLock.acquire(timeoutMs);
-                    Log.d(TAG, "🔒 PARTIAL_WAKE_LOCK acquired for " + timeoutMs + "ms");
-                }
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "Failed to acquire wakelock: " + t.getMessage());
-        }
-    }
-
-    private void releaseWakeLock() {
-        try {
-            if (wakeLock != null && wakeLock.isHeld()) {
-                wakeLock.release();
-                Log.d(TAG, "🔓 PARTIAL_WAKE_LOCK released");
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "Failed to release wakelock: " + t.getMessage());
-        }
-    }
-    
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "ChargingService started");
@@ -380,176 +315,29 @@ public class ChargingService extends Service {
         return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
     }
     
-    /**
-     * End the charging animation immediately.
-     */
-    private void finishChargingAnimation() {
-        try {
-            // End it via broadcast to RearScreenChargingActivity
-            Intent finishIntent = new Intent("com.tgwgroup.MiRearScreenSwitcher.FINISH_CHARGING_ANIMATION");
-            finishIntent.setPackage(getPackageName());
-            sendBroadcast(finishIntent);
-                Log.d(TAG, "End-charging broadcast sent");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to finish charging animation", e);
-        }
+    private void showChargingOnRearScreen(int level) {
+        showChargingOnRearScreenWithRetry(level, 0);
     }
-    
-    private void showChargingOnRearScreen(int level, boolean isLocked) {
-        showChargingOnRearScreenWithRetry(level, isLocked, 0);
-    }
-    
-    private void showChargingOnRearScreenWithRetry(int level, boolean isLocked, int retryCount) {
+
+    private void showChargingOnRearScreenWithRetry(int level, int retryCount) {
         if (taskService == null) {
-            if (retryCount < 10) {  // retry up to 10 times (1s total)
+            if (retryCount < 10 && isPluggedIn(this)) {  // retry up to 10 times (1s total), only while still plugged in
                 Log.w(TAG, "TaskService not available, retry " + (retryCount + 1) + "/10");
-                // Retry after a delay
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    showChargingOnRearScreenWithRetry(level, isLocked, retryCount + 1);
-                }, 100);
-                return;
-            } else {
-                Log.e(TAG, "TaskService still not available after 10 retries, aborting");
+                debounceHandler.postDelayed(() -> showChargingOnRearScreenWithRetry(level, retryCount + 1), 100);
                 return;
             }
+            Log.e(TAG, "TaskService not available, aborting");
+            return;
         }
+        if (!prefs.getBoolean("charging_animation_enabled", true)) return;
 
         // Only stamp the cooldown after TaskService is confirmed available and the animation will actually play,
         // so a transient TaskService-not-ready failure does not lock out retries for the next 6s
         lastChargingAnimationTime = System.currentTimeMillis();
-        RearScreenChargingActivity.resetSelfFinished();
 
-        acquireWakeLock(8000);
-        try {
-            // Step 1: check whether an app is cast onto the rear screen
-            String lastTask = SwitchToRearTileService.getLastMovedTask();
-            int rearTaskId = -1;
-            
-            if (lastTask != null && lastTask.contains(":")) {
-                try {
-                    String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
-                    
-                    // If the rear foreground is still the charging animation, the previous animation has not fully died; reuse lastTask
-                    if (rearForegroundApp != null && rearForegroundApp.contains("RearScreenChargingActivity")) {
-                        Log.d(TAG, "Charging animation showing; using lastTask: " + lastTask);
-                        String[] parts = lastTask.split(":");
-                        rearTaskId = Integer.parseInt(parts[1]);
-                    } else if (rearForegroundApp != null && rearForegroundApp.equals(lastTask)) {
-                        // An app really is running on the rear screen
-                        String[] parts = lastTask.split(":");
-                        rearTaskId = Integer.parseInt(parts[1]);
-                        Log.d(TAG, "Rear has a cast app: " + lastTask);
-                    }
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to check the rear app", e);
-                }
-            }
-            
-            // Step 2: if an app is cast, pause RearScreenKeeperService monitoring
-            if (rearTaskId > 0) {
-                RearScreenKeeperService.pauseMonitoring();
-            }
-            
-            // Step 3: disable the official Launcher
-            taskService.disableSubScreenLauncher();
-            
-            long startTime = System.currentTimeMillis();
-            Log.d(TAG, String.format("[%tT.%tL] Starting the charging animation", startTime, startTime));
-            
-            // V3.3: removed all wake/unlock code to avoid jumping to the passcode screen while locked
-
-            // Wake the rear screen first, then launch the Activity, so the animation lands on an already-lit screen.
-            // Window flags (FLAG_TURN_SCREEN_ON) do nothing while the rear screen is DOZE/DOZE_SUSPEND;
-            // only this command lights it (same as a double-tap wake), consistent with NotificationService.
-            // If the rear screen was off, HyperOS pulls SubScreenLauncher to the front and removes our task the moment the wake completes,
-            // so wait for the wake (measured ~1.5s) before starting the animation; if the screen is already on, no wait needed.
-            boolean rearWasOn = isRearDisplayOn();
-            try {
-                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                if (!rearWasOn) {
-                    Thread.sleep(1500);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (Throwable t) {
-                Log.w(TAG, "Failed to wake the rear screen: " + t.getMessage());
-            }
-
-            // Step 4: MRSN strategy - launch invisibly on the main screen, then move to the rear
-            try {
-                // 4.1: launch on the main screen first (the Activity hides itself in onCreate)
-                String componentName = getPackageName() + "/" + RearScreenChargingActivity.class.getName();
-                String mainCmd = String.format(
-                    "am start -n %s --ei batteryLevel %d --ei rearTaskId %d",
-                    componentName,
-                    level,
-                    rearTaskId
-                );
-                
-                Log.d(TAG, String.format("[%tT.%tL] 🔵 Launching the Activity on the main display", System.currentTimeMillis(), System.currentTimeMillis()));
-                taskService.executeShellCommand(mainCmd);
-                
-                // 4.2: poll for the taskId (up to 60 x 30ms = 1800ms; resend the command mid-way)
-                String chargingTaskId = null;
-                int attempts = 0;
-                int maxAttempts = 60;
-                
-                while (chargingTaskId == null && attempts < maxAttempts) {
-                    Thread.sleep(30);
-                    String result = taskService.executeShellCommandWithResult("am stack list | grep RearScreenChargingActivity");
-                    if (result != null && !result.trim().isEmpty()) {
-                        // Parse taskId=XXX
-                        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("taskId=(\\d+)");
-                        java.util.regex.Matcher matcher = pattern.matcher(result);
-                        if (matcher.find()) {
-                            chargingTaskId = matcher.group(1);
-                            Log.d(TAG, String.format("[%tT.%tL] Found taskId=%s (attempt %d)", 
-                                System.currentTimeMillis(), System.currentTimeMillis(), chargingTaskId, attempts + 1));
-                            break;
-                        }
-                    }
-                    attempts++;
-                    if (attempts == 20 || attempts == 40) { // resend the launch command once or twice mid-way
-                        Log.d(TAG, String.format("[%tT.%tL] Re-sending the main-screen launch command", System.currentTimeMillis(), System.currentTimeMillis()));
-                        taskService.executeShellCommand(mainCmd);
-                    }
-                }
-                
-                if (chargingTaskId != null) {
-                    // 4.3: move to the rear screen
-                    String moveCmd = "am display move-stack " + chargingTaskId + " 1";
-                    taskService.executeShellCommand(moveCmd);
-                    Thread.sleep(40); // wait for the move to complete
-                    // A rear screen woken while locked goes dark again by itself after ~1s, already black during the 1.5s wake wait;
-                    // wake it once more after the animation lands, then FLAG_KEEP_SCREEN_ON keeps it lit and the system leaves it alone
-                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                    
-                    // 4.4: turn off the main screen only when locked (no need when it is already on)
-                    if (isLocked) {
-                        // Main-screen sleep removed
-                        Log.d(TAG, String.format("[%tT.%tL] Locked; main screen off", 
-                            System.currentTimeMillis(), System.currentTimeMillis()));
-                    } else {
-                        Log.d(TAG, String.format("[%tT.%tL] Unlocked; keeping the main screen on", 
-                            System.currentTimeMillis(), System.currentTimeMillis()));
-                    }
-                    
-                    long endTime = System.currentTimeMillis();
-                    Log.d(TAG, String.format("[%tT.%tL] Charging animation moved to the rear (took %dms)", 
-                        endTime, endTime, endTime - startTime));
-                } else {
-                    Log.e(TAG, String.format("[%tT.%tL] Could not find taskId after %d attempts", 
-                        System.currentTimeMillis(), System.currentTimeMillis(), attempts));
-                }
-            } catch (Exception e) {
-                long errorTime = System.currentTimeMillis();
-                Log.e(TAG, String.format("[%tT.%tL] Failed to start the charging animation", errorTime, errorTime), e);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error showing charging", e);
-        } finally {
-            releaseWakeLock();
-        }
+        Bundle payload = new Bundle();
+        payload.putInt("batteryLevel", level);
+        RearHost.show(this, RearStack.Type.CHARGING, payload);
     }
     
     @Override
@@ -584,13 +372,6 @@ public class ChargingService extends Service {
             unregisterReceiver(settingsReceiver);
         } catch (Exception e) {
             Log.e(TAG, "Error unregistering settings receiver", e);
-        }
-        
-        // V3.5: unregister the resume-charging receiver
-        try {
-            unregisterReceiver(resumeChargingReceiver);
-        } catch (Exception e) {
-            Log.e(TAG, "Error unregistering resume charging receiver", e);
         }
         
         // V3.5: stop the wake loop
@@ -632,13 +413,20 @@ public class ChargingService extends Service {
                 
                 // One-shot mode: stop the loop when this animation finished on its own (8s timeout / interrupted) or exceeded the watchdog
                 boolean alwaysOn = prefs.getBoolean("charging_always_on_enabled", false);
-                if (!alwaysOn && (RearScreenChargingActivity.isSelfFinished()
+                if (!alwaysOn && (RearHost.isChargingSelfFinished()
                         || System.currentTimeMillis() - wakeupLoopStartTime > SINGLE_SESSION_GUARD_MS)) {
                     Log.d(TAG, "One-shot mode; this charging animation finished; stopping the loop");
                     stopWakeupLoop();
                     return;
                 }
                 
+                if (!prefs.getBoolean("charging_animation_enabled", true)) {
+                    Log.d(TAG, "Charging animation disabled; stopping the loop");
+                    stopWakeupLoop();
+                    RearHost.hide(ChargingService.this, RearStack.Type.CHARGING);
+                    return;
+                }
+
                 // Rear screen went from off to on (user double-tap wake); un-pause
                 boolean rearOn = isRearDisplayOn();
                 if (relaunchSuspended && rearOn && !rearWasOnLastTick) {
@@ -648,8 +436,8 @@ public class ChargingService extends Service {
                 }
                 rearWasOnLastTick = rearOn;
 
-                if (RearScreenChargingActivity.isShowing()) {
-                    if (System.currentTimeMillis() - RearScreenChargingActivity.getShownSince() > RELAUNCH_MIN_VISIBLE_MS) {
+                if (RearHost.isShowing()) {
+                    if (System.currentTimeMillis() - RearHost.getShownSince() > RELAUNCH_MIN_VISIBLE_MS) {
                         failedRelaunches = 0;
                         relaunchSuspended = false;
                     }
@@ -668,17 +456,13 @@ public class ChargingService extends Service {
                         && System.currentTimeMillis() - lastChargingAnimationTime > RELAUNCH_GRACE_MS) {
                     // Animation no longer on the rear (swiped home / removed after sleep / not restored after a notification);
                     // if the rear screen is lit, relaunch it - consistent with the media page auto-recovery. If it is off, do not wake; wait for the user's double-tap.
-                    RearAnimationManager.AnimationType current = RearAnimationManager.getCurrentAnimation();
-                    if (alwaysOn && RearScreenChargingActivity.getLastVisibleMs() < RELAUNCH_MIN_VISIBLE_MS
+                    if (alwaysOn && RearHost.getLastVisibleMs() < RELAUNCH_MIN_VISIBLE_MS
                             && ++failedRelaunches >= MAX_FAILED_RELAUNCHES) {
                         Log.d(TAG, "⏸️ Relaunches keep getting removed by the system; pausing until the rear screen is relit");
                         relaunchSuspended = true;
-                    } else if (current == RearAnimationManager.AnimationType.NONE
-                            || current == RearAnimationManager.AnimationType.CHARGING) {
+                    } else if (RearStack.top() == RearStack.Type.CHARGING) {
                         Log.d(TAG, "🔁 Charging animation not visible and the rear is lit; relaunching");
-                        RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.CHARGING);
-                        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-                        showChargingOnRearScreen(getBatteryLevel(getApplicationContext()), km != null && km.isKeyguardLocked());
+                        showChargingOnRearScreen(getBatteryLevel(getApplicationContext()));
                     }
                 }
                 
@@ -686,7 +470,7 @@ public class ChargingService extends Service {
                 try {
                     int batteryLevel = getBatteryLevel(getApplicationContext());
                     // Update the battery via the static method directly
-                    RearScreenChargingActivity.updateBatteryLevelStatic(batteryLevel);
+                    RearHost.updateBattery(batteryLevel);
                     Log.d(TAG, "🔋 Battery directly updated: " + batteryLevel + "%");
                 } catch (Exception e) {
                     Log.w(TAG, "Failed to update the battery level: " + e.getMessage());

@@ -178,88 +178,25 @@ public class MainActivity extends FlutterActivity {
             String packageName = intent.getStringExtra("packageName");
             String title = intent.getStringExtra("title");
             String text = intent.getStringExtra("text");
-            long when = intent.getLongExtra("when", System.currentTimeMillis());
             
             Log.d(TAG, "Received notification intent for: " + packageName);
-            startNotificationOnRearScreen(packageName, title, text, when);
+            startNotificationOnRearScreen(packageName, title, text);
         }
     }
     
     /**
-     * Start the notification Activity on the rear screen.
+     * Show a notification on the rear screen via the rear host.
      */
-    private void startNotificationOnRearScreen(String packageName, String title, String text, long when) {
-        if (taskService == null) {
-            Log.w(TAG, "TaskService not available for notification");
-            return;
-        }
-        
-        new Thread(() -> {
-            try {
-                // Step 1: disable the official Launcher
-                taskService.disableSubScreenLauncher();
-                
-                // Step 2: wake the rear screen
-                taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                Thread.sleep(50);
-                
-                // Step 3: start the Activity on the main display
-                String componentName = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
-                String mainCmd = String.format(
-                    "am start -n %s --es packageName \"%s\" --es title \"%s\" --es text \"%s\" --el when %d",
-                    componentName, packageName,
-                    title != null ? title.replace("\"", "'") : "",
-                    text != null ? text.replace("\"", "'") : "",
-                    when
-                );
-                taskService.executeShellCommand(mainCmd);
-                
-                // Step 4: poll for the taskId
-                String notifTaskId = null;
-                int attempts = 0;
-                int maxAttempts = 20;
-                
-                while (notifTaskId == null && attempts < maxAttempts) {
-                    Thread.sleep(30);
-                    String result = taskService.executeShellCommandWithResult("am stack list | grep RearScreenNotificationActivity");
-                    if (result != null && !result.trim().isEmpty()) {
-                        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("taskId=(\\d+)");
-                        java.util.regex.Matcher matcher = pattern.matcher(result);
-                        if (matcher.find()) {
-                            notifTaskId = matcher.group(1);
-                            Log.d(TAG, "Found notification taskId=" + notifTaskId);
-                            break;
-                        }
-                    }
-                    attempts++;
-                }
-                
-                if (notifTaskId != null) {
-                    // Step 5: move to the rear screen
-                    String moveCmd = "am display move-stack " + notifTaskId + " 1";
-                    taskService.executeShellCommand(moveCmd);
-                    Thread.sleep(40);
-                    
-                    // Step 6: check lock state, decide whether to turn off the main screen
-                    android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-                    if (km != null && km.isKeyguardLocked()) {
-                        // Main-screen sleep removed
-                        Log.d(TAG, "🔒 Locked; main screen off");
-                    }
-                    
-                    Log.d(TAG, "✅ Notification animation started on rear screen");
-                } else {
-                    Log.e(TAG, "❌ Failed to find notification taskId");
-                }
-                
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to show notification on rear screen", e);
-            }
-        }).start();
+    private void startNotificationOnRearScreen(String packageName, String title, String text) {
+        android.os.Bundle payload = new android.os.Bundle();
+        payload.putString("packageName", packageName);
+        payload.putString("title", title);
+        payload.putString("text", text);
+        new Thread(() -> RearHost.show(this, RearStack.Type.NOTIFICATION, payload)).start();
     }
     
     /**
-     * Execute a shell command (for RearScreenChargingActivity).
+     * Execute a shell command (for the rear host).
      */
     public void executeShellCommand(String cmd) {
         if (taskService != null) {

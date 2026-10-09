@@ -31,7 +31,6 @@ import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
 import android.os.Build;
-import android.os.PowerManager;
 import android.os.IBinder;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
@@ -62,7 +61,6 @@ public class NotificationService extends NotificationListenerService {
     private boolean serviceEnabled = false; // whether the service is enabled
     private ITaskService taskService; // own TaskService instance
     private SharedPreferences prefs;
-    private PowerManager.WakeLock wakeLock;
     private String lastShownSignature; // last shown notification (key|title|content), used to filter duplicate posts
     
     // Static instance, accessible from outside
@@ -81,24 +79,16 @@ public class NotificationService extends NotificationListenerService {
         return instance != null ? instance.activeMediaController : null;
     }
 
-    /**
-     * Called when the notification ends after interrupting media playback: if media is still active (not truly stopped), show it again.
-     */
-    public static void resumeMediaIfInterrupted() {
-        if (instance != null && instance.activeMediaController != null) {
-            instance.scheduleShowMediaOnRearScreen(
-                instance.activeMediaController.getMetadata(),
-                instance.activeMediaController.getPlaybackState()
-            );
-        }
-    }
-
     // MediaController.Callback fires several times for one logical track/state change (onMetadataChanged+onPlaybackStateChanged
     // often arrive together and repeat). Each showMediaOnRearScreen is a synchronous, blocking wake+launch flow (with Thread.sleep),
     // so bursts race each other and destabilize the rear screen. Debounce here: only run the last one in a short window.
     private static final long MEDIA_UPDATE_DEBOUNCE_MS = 250;
     private final android.os.Handler mediaUpdateHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable pendingMediaUpdate;
+    // Paused media stays up this long before it is hidden
+    private static final long MEDIA_PAUSED_GRACE_MS = 5000;
+    private Runnable pendingPausedHide;
+    private String lastMediaSignature; // last media state pushed to the rear (pkg|title|artist|playing|art)
 
     private void scheduleShowMediaOnRearScreen(MediaMetadata metadata, PlaybackState state) {
         if (pendingMediaUpdate != null) {
@@ -118,10 +108,7 @@ public class NotificationService extends NotificationListenerService {
         public void onPlaybackStateChanged(PlaybackState state) {
             if (state == null) return;
             if (state.getState() == PlaybackState.STATE_STOPPED || state.getState() == PlaybackState.STATE_NONE) {
-                if (pendingMediaUpdate != null) {
-                    mediaUpdateHandler.removeCallbacks(pendingMediaUpdate);
-                }
-                RearAnimationManager.sendInterruptBroadcast(NotificationService.this, RearAnimationManager.AnimationType.MEDIA);
+                hideMedia();
                 return;
             }
             scheduleShowMediaOnRearScreen(activeMediaController != null ? activeMediaController.getMetadata() : null, state);
@@ -136,9 +123,20 @@ public class NotificationService extends NotificationListenerService {
      */
     private void pickActiveMediaController(List<MediaController> controllers) {
         if (controllers == null || controllers.isEmpty()) {
-            if (activeMediaController != null) {
-                RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.MEDIA);
-            }
+            hideMedia();
+            detachMediaController();
+            return;
+        }
+
+        // Only consider sessions from apps the user selected; never track (or show) another app's session
+        Set<String> selected = prefs.getStringSet("notification_selected_apps", new HashSet<>());
+        java.util.ArrayList<MediaController> candidates = new java.util.ArrayList<>();
+        for (MediaController c : controllers) {
+            if (selected.contains(c.getPackageName())) candidates.add(c);
+        }
+        controllers = candidates;
+        if (controllers.isEmpty()) {
+            hideMedia();
             detachMediaController();
             return;
         }
@@ -166,9 +164,7 @@ public class NotificationService extends NotificationListenerService {
         }
         if (chosen == null) {
             // No session has real state; nothing to display
-            if (activeMediaController != null) {
-                RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.MEDIA);
-            }
+            hideMedia();
             detachMediaController();
             return;
         }
@@ -176,6 +172,7 @@ public class NotificationService extends NotificationListenerService {
             return; // still the same session; callback already registered
         }
 
+        hideMedia(); // the previous app's page must not linger under the new session
         detachMediaController();
         activeMediaController = chosen;
         activeMediaPackage = chosen.getPackageName();
@@ -227,6 +224,7 @@ public class NotificationService extends NotificationListenerService {
                     // When media is playing, just waking the screen does not guarantee the media UI is what shows
                     // (the rear screen has its own on/off timing and easily races the official Launcher),
                     // so re-show the media UI to guarantee it is what appears on the locked rear screen.
+                    lastMediaSignature = null; // force a re-show even though nothing changed
                     scheduleShowMediaOnRearScreen(activeMediaController.getMetadata(), activeMediaController.getPlaybackState());
                 } else {
                     taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
@@ -511,7 +509,6 @@ public class NotificationService extends NotificationListenerService {
             // Extract the notification content
             String title = notification.extras.getString(Notification.EXTRA_TITLE, "");
             String text = notification.extras.getString(Notification.EXTRA_TEXT, "");
-            long when = notification.when;
             
             Log.d(TAG, "📝 Notification title: " + title);
             Log.d(TAG, "📝 Notification content: " + text);
@@ -520,8 +517,7 @@ public class NotificationService extends NotificationListenerService {
             // otherwise every one interrupts and reloads the notification Activity, appearing as a rear-screen flicker.
             // Compare the raw pre-privacy content so new messages in the same session still replace normally in privacy mode.
             String signature = sbn.getKey() + "|" + title + "|" + text;
-            if (signature.equals(lastShownSignature)
-                    && RearAnimationManager.getCurrentAnimation() == RearAnimationManager.AnimationType.NOTIFICATION) {
+            if (signature.equals(lastShownSignature) && RearStack.contains(RearStack.Type.NOTIFICATION)) {
                 Log.d(TAG, "⏭️ Duplicate identical notification still showing; ignoring: " + packageName);
                 return;
             }
@@ -538,252 +534,40 @@ public class NotificationService extends NotificationListenerService {
             }
             
             Log.d(TAG, "🚀 Showing rear notification: " + packageName);
-            
-            // Animation manager: start the notification animation (returns the interrupted old one)
-            RearAnimationManager.AnimationType oldAnim = RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.NOTIFICATION);
-            
-            // If an old animation must be interrupted, send the interrupt broadcast
-            if (oldAnim == RearAnimationManager.AnimationType.CHARGING) {
-                Log.d(TAG, "🔄 Charging animation playing; sending interrupt broadcast");
-                
-                // V3.5: check whether the interrupted charging animation was always-on
-                boolean chargingAlwaysOn = prefs.getBoolean("charging_always_on_enabled", false);
-                RearAnimationManager.markInterruptedChargingAsAlwaysOn(chargingAlwaysOn);
-                
-                RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.CHARGING);
-            } else if (oldAnim == RearAnimationManager.AnimationType.MEDIA) {
-                Log.d(TAG, "🔄 Media playback showing; sending interrupt broadcast");
-                // When the notification ends, resume media playback instead of the official Launcher
-                RearAnimationManager.markMediaInterruptedByNotification();
-                RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.MEDIA);
-            } else if (oldAnim == RearAnimationManager.AnimationType.NOTIFICATION) {
-                Log.d(TAG, "🔄 Notification animation playing; interrupting and reloading");
-                RearAnimationManager.sendInterruptBroadcast(this, RearAnimationManager.AnimationType.NOTIFICATION);
-                
-                // Relaunch the notification animation after 600ms so the old one fully stops (needs more time when locked + app cast)
-                final String finalPackageName = packageName;
-                final String finalTitle = title;
-                final String finalText = text;
-                final long finalWhen = when;
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    Log.d(TAG, "🔄 Reloading notification animation");
-                    // The previous animation was just interrupted, so the screen is clearly lit; skip the wake to avoid interrupting this one
-                    showNotificationOnRearScreen(finalPackageName, finalTitle, finalText, finalWhen, true);
-                }, 600);
-                return; // return early to avoid a duplicate launch
-            }
-
-            // Trigger the rear notification display
-            showNotificationOnRearScreen(packageName, title, text, when, false);
+            notificationDarkMode = prefs.getBoolean("notification_dark_mode", false);
+            showNotificationOnRearScreen(packageName, title, text, notificationDarkMode);
 
         } catch (Exception e) {
             Log.e(TAG, "❌ Error handling notification", e);
         }
     }
 
-    private void showNotificationOnRearScreen(String packageName, String title, String text, long when, boolean skipWake) {
-        // Modeled on ChargingService\'s retry mechanism
+    private void showNotificationOnRearScreen(String packageName, String title, String text, boolean darkMode) {
+        android.os.Bundle payload = new android.os.Bundle();
+        payload.putString("packageName", packageName);
+        payload.putString("title", title);
+        payload.putString("text", text);
+        payload.putBoolean("darkMode", darkMode);
         if (taskService == null) {
             Log.w(TAG, "⚠️ TaskService not connected; trying to rebind...");
             bindTaskService();
-
-            // Retry after a 500ms delay
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                showNotificationOnRearScreenDirect(packageName, title, text, when, skipWake);
+            // Retry after a short delay; give up if still unavailable
+            mediaUpdateHandler.postDelayed(() -> {
+                if (taskService == null) {
+                    Log.e(TAG, "❌ TaskService still unavailable; giving up on the notification");
+                    return;
+                }
+                RearHost.show(this, RearStack.Type.NOTIFICATION, payload);
             }, 500);
         } else {
-            showNotificationOnRearScreenDirect(packageName, title, text, when, skipWake);
-        }
-    }
-    
-    private void showNotificationOnRearScreenDirect(String packageName, String title, String text, long when, boolean skipWake) {
-        try {
-            if (taskService == null) {
-                Log.e(TAG, "❌ TaskService still unavailable; giving up on the notification");
-                return;
-            }
-            
-            // Local short keep-alive to avoid suspension while locked/heavily loaded
-            acquireWakeLock(6000);
-            Log.d(TAG, "🎯 Preparing to launch the Activity to show the notification");
-            
-            // Lock-state check
-            android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-            boolean isLocked = km != null && km.isKeyguardLocked();
-            
-            // Read the main-screen foreground app (guards the same-package-in-foreground case)
-            String mainForegroundApp = null;
-            try {
-                mainForegroundApp = taskService.getForegroundAppOnDisplay(0);
-                Log.d(TAG, "📱 Main-screen foreground app: " + mainForegroundApp);
-            } catch (Throwable t) {
-                Log.w(TAG, "Failed to get the main-screen foreground app: " + t.getMessage());
-            }
-            
-            // V3.3: removed wake code to avoid jumping to the passcode screen while locked
-            
-            try {
-                // Pause monitoring so it does not get killed
-                RearScreenKeeperService.pauseMonitoring();
-            } catch (Throwable t) {
-                Log.w(TAG, "pauseMonitoring failed: " + t.getMessage());
-            }
-            
-            try {
-                // Disable the official rear-screen Launcher so it does not steal the screen
-                taskService.disableSubScreenLauncher();
-            } catch (Throwable t) {
-                Log.w(TAG, "disableSubScreenLauncher failed: " + t.getMessage());
-            }
-            
-            // V3.3: removed the `wm dismiss-keyguard` command to avoid jumping to the passcode screen while locked
-            
-            // Wake the rear screen first, then launch the Activity, so the animation lands on an already-lit screen.
-            // Window flags (FLAG_TURN_SCREEN_ON) do nothing while the rear screen is DOZE/DOZE_SUSPEND;
-            // only this command lights it (same as a double-tap wake), consistent with RearScreenKeeperService/AlwaysWakeUpService.
-            // Must run before both launch strategies (direct --display 1 and placeholder+move) because both need the screen lit.
-            // skipWake: skip when reloading right after the previous notification animation was interrupted; the screen is clearly already lit,
-            // and waking again just adds a pointless wait that looks like a "wake animation interrupted the notification".
-            if (!skipWake) {
-                try {
-                    taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                    // Wait for the physical wake (backlight ramp) so the animation does not draw before the screen is lit
-                    Thread.sleep(300);
-                } catch (Throwable t) {
-                    Log.w(TAG, "Failed to wake the rear screen: " + t.getMessage());
-                }
-            }
-
-            // 2) pick the launch strategy from lock state and foreground app
-            String componentName = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
-            
-            // When locked and the main-screen foreground is this notification's own app, skip the main-placeholder strategy and launch directly on the rear to avoid a system conflict
-            // Exact package match to avoid false positives (e.g. com.tencent.mm vs com.tencent.mobileqq)
-            boolean forceDirectRearDueToSameApp = false;
-            if (isLocked && mainForegroundApp != null && !mainForegroundApp.isEmpty()) {
-                // Extract the package of the main-screen foreground app (format may be "com.example.app/com.example.app.MainActivity")
-                String foregroundPackage = mainForegroundApp;
-                if (mainForegroundApp.contains("/")) {
-                    foregroundPackage = mainForegroundApp.split("/")[0];
-                }
-                forceDirectRearDueToSameApp = foregroundPackage.equals(packageName);
-                Log.d(TAG, String.format("🔍 Locked same-package check: main foreground=[%s] vs notification package=[%s] -> %s",
-                    foregroundPackage, packageName, forceDirectRearDueToSameApp ? "match (direct rear)" : "no match (placeholder)"));
-            }
-            
-            // ✅ Unified strategy: launch directly on the rear screen regardless of lock state (avoids DPI mismatch)
-            // Launching directly on the rear screen ensures the layout uses the correct DPI (450), avoiding size issues from a main-screen move
-            
-            // Ensure the dark-mode setting is current
-            notificationDarkMode = prefs.getBoolean("notification_dark_mode", false);
-            Log.d(TAG, "🌙 Current dark-mode setting: " + notificationDarkMode);
-            
-            String directCmd = String.format(
-                "am start --display 1 -n %s --es packageName \"%s\" --es title \"%s\" --es text \"%s\" --el when %d --ez darkMode %b",
-                componentName,
-                packageName,
-                title.replace("\"", "\\\""),
-                text.replace("\"", "\\\""),
-                when,
-                notificationDarkMode
-            );
-            
-            boolean started = false;
-            // When locked, HyperOS always rejects --display 1 (ActivityStarterImpl); go straight to the main-placeholder+move below and save ~1s of wasted tries.
-            // Unlocked: launch once, then poll. The Activity only shows up in `am stack list` after ~0.5s;
-            // repeating --display 1 during that window can create phantom tasks.
-            if (!isLocked) {
-                try {
-                    taskService.executeShellCommand(directCmd);
-                    Log.d(TAG, "✓ Unlocked; launching the notification Activity directly on the rear");
-                    for (int i = 0; i < 6 && !started; i++) {
-                        try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                        String check = taskService.executeShellCommandWithResult("am stack list | grep RearScreenNotificationActivity");
-                        started = check != null && !check.trim().isEmpty();
-                    }
-                    Log.d(TAG, started ? "✓ Notification animation started on the rear" : "⚠️ Direct rear launch did not appear");
-                } catch (Throwable t) {
-                    Log.w(TAG, "Direct rear launch failed: " + t.getMessage());
-                }
-            }
-            
-            // If the direct launch failed, use the fallback (main placeholder + move)
-            if (!started) {
-                Log.w(TAG, isLocked ? "🔒 Locked; using main placeholder + move" : "⚠️ Direct rear launch failed; falling back to main placeholder + move");
-                
-                // Launch on the main screen (the Activity acts as its own placeholder)
-                String startOnMainCmd = String.format(
-                    "am start -n %s --es packageName \"%s\" --es title \"%s\" --es text \"%s\" --el when %d --ez darkMode %b",
-                    componentName,
-                    packageName,
-                    title.replace("\"", "\\\""),
-                    text.replace("\"", "\\\""),
-                    when,
-                    notificationDarkMode
-                );
-                Log.d(TAG, "🔵 Launching the notification Activity on the main display (placeholder)");
-                taskService.executeShellCommand(startOnMainCmd);
-                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                
-                // Poll for the taskId
-                String notifTaskId = null;
-                int attempts = 0;
-                int maxAttempts = 60;
-                while (notifTaskId == null && attempts < maxAttempts) {
-                    try { Thread.sleep(40); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                    String result = taskService.executeShellCommandWithResult("am stack list | grep RearScreenNotificationActivity");
-                    if (result != null && !result.trim().isEmpty()) {
-                        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("taskId=(\\d+)");
-                        java.util.regex.Matcher matcher = pattern.matcher(result);
-                        if (matcher.find()) {
-                            notifTaskId = matcher.group(1);
-                            Log.d(TAG, "🎯 Found notification taskId=" + notifTaskId);
-                            break;
-                        }
-                    }
-                    attempts++;
-                }
-                
-                if (notifTaskId != null) {
-                    // 4) move to the rear screen
-                    String moveCmd = "am display move-stack " + notifTaskId + " 1";
-                    taskService.executeShellCommand(moveCmd);
-                    try { Thread.sleep(60); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                    
-                    // 5) turn off the main screen while locked to avoid focus stealing
-                    // main-screen sleep removed
-                    Log.d(TAG, "🔒 Locked; main screen off");
-                    
-                    Log.d(TAG, "✓ Notification animation moved to the rear");
-                } else {
-                    Log.e(TAG, "❌ Could not find the notification Activity taskId; last-ditch direct rear launch");
-                    try {
-                        String fallbackCmd = String.format(
-                            "am start --display 1 -n %s --es packageName \"%s\" --es title \"%s\" --es text \"%s\" --el when %d --ez darkMode %b",
-                            componentName,
-                            packageName,
-                            title.replace("\"", "\\\""),
-                            text.replace("\"", "\\\""),
-                            when,
-                            notificationDarkMode
-                        );
-                        taskService.executeShellCommand(fallbackCmd);
-                        Log.d(TAG, "🟦 Tried direct --display 1 launch (fallback)");
-                    } catch (Throwable t) {
-                        Log.w(TAG, "Fallback direct rear launch failed: " + t.getMessage());
-                    }
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "❌ Failed to show the rear notification", e);
-        } finally {
-            releaseWakeLock();
+            RearHost.show(this, RearStack.Type.NOTIFICATION, payload);
         }
     }
 
     /**
-     * Media display (POC): shows the current track info + album art on the rear screen, with playback controls.
+     * Media display: shows the current track + album art on the rear screen, with playback controls.
      * Reuses the notification service toggle and "selected apps" whitelist as the gate; no separate switch.
+     * Only pushes to the rear when title, artist or play state actually changed.
      */
     private void showMediaOnRearScreen(MediaMetadata metadata, PlaybackState state) {
         try {
@@ -796,9 +580,24 @@ public class NotificationService extends NotificationListenerService {
             String artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST);
             boolean isPlaying = state != null && state.getState() == PlaybackState.STATE_PLAYING;
 
-            String albumArtPath = null;
+            if (isPlaying) {
+                cancelPausedHide();
+            } else {
+                // Paused: don't pop media up from nothing; if already showing, hide it after a grace period
+                if (!RearStack.contains(RearStack.Type.MEDIA)) return;
+                schedulePausedHide();
+            }
+
             Bitmap art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
             if (art == null) art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ART);
+
+            String signature = activeMediaPackage + "|" + title + "|" + artist + "|" + isPlaying + "|" + (art != null);
+            if (signature.equals(lastMediaSignature) && RearStack.contains(RearStack.Type.MEDIA)) {
+                return; // nothing changed; apps that post state every second must not re-front the media page
+            }
+            lastMediaSignature = signature;
+
+            String albumArtPath = null;
             if (art != null) {
                 try {
                     File f = new File(getCacheDir(), "media_album_art.png");
@@ -811,86 +610,44 @@ public class NotificationService extends NotificationListenerService {
                 }
             }
 
-            RearAnimationManager.startAnimation(RearAnimationManager.AnimationType.MEDIA);
-
-            String componentName = getPackageName() + "/" + RearScreenMediaActivity.class.getName();
-            String extras = String.format(
-                "--es packageName \"%s\" --es title \"%s\" --es artist \"%s\" --es albumArtPath \"%s\" --ez isPlaying %b",
-                activeMediaPackage,
-                title == null ? "" : title.replace("\"", "\\\""),
-                artist == null ? "" : artist.replace("\"", "\\\""),
-                albumArtPath == null ? "" : albumArtPath,
-                isPlaying
-            );
-
-            // When locked, HyperOS rejects a new --display 1 task launch (ActivityStarterImpl's rearDisplay check);
-            // like the notification popup, it needs a main placeholder first, then move-stack
-            android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-            boolean isLocked = km != null && km.isKeyguardLocked();
-
-            boolean started = false;
-            if (!isLocked) {
-                taskService.executeShellCommand("am start --display 1 -n " + componentName + " " + extras);
-                try { Thread.sleep(150); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                String check = taskService.executeShellCommandWithResult("am stack list | grep RearScreenMediaActivity");
-                started = check != null && !check.trim().isEmpty();
-            }
-
-            if (!started) {
-                taskService.executeShellCommand("am start -n " + componentName + " " + extras);
-                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-
-                String mediaTaskId = null;
-                for (int attempts = 0; attempts < 60 && mediaTaskId == null; attempts++) {
-                    try { Thread.sleep(40); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                    String result = taskService.executeShellCommandWithResult("am stack list | grep RearScreenMediaActivity");
-                    if (result != null && !result.trim().isEmpty()) {
-                        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("taskId=(\\d+)").matcher(result);
-                        if (matcher.find()) mediaTaskId = matcher.group(1);
-                    }
-                }
-                if (mediaTaskId != null) {
-                    taskService.executeShellCommand("am display move-stack " + mediaTaskId + " 1");
-                } else {
-                    Log.w(TAG, "⚠️ Could not find the media Activity taskId");
-                }
-            }
-
+            android.os.Bundle payload = new android.os.Bundle();
+            payload.putString("packageName", activeMediaPackage);
+            payload.putString("title", title == null ? "" : title);
+            payload.putString("artist", artist == null ? "" : artist);
+            payload.putString("albumArtPath", albumArtPath == null ? "" : albumArtPath);
+            payload.putBoolean("isPlaying", isPlaying);
+            RearHost.show(this, RearStack.Type.MEDIA, payload);
             Log.d(TAG, "🎵 Media playback showing on the rear: " + title);
         } catch (Exception e) {
             Log.e(TAG, "❌ Failed to show rear media playback", e);
         }
     }
 
-    private void acquireWakeLock(long timeoutMs) {
-        try {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (pm != null) {
-                if (wakeLock == null) {
-                    wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MRSS:NotificationWake");
-                    wakeLock.setReferenceCounted(false);
-                }
-                if (!wakeLock.isHeld()) {
-                    wakeLock.acquire(timeoutMs);
-                    Log.d(TAG, "🔒 PARTIAL_WAKE_LOCK acquired for " + timeoutMs + "ms");
-                }
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "Failed to acquire wakelock: " + t.getMessage());
+    private void hideMedia() {
+        if (pendingMediaUpdate != null) {
+            mediaUpdateHandler.removeCallbacks(pendingMediaUpdate);
+        }
+        cancelPausedHide();
+        lastMediaSignature = null;
+        RearHost.hide(this, RearStack.Type.MEDIA);
+    }
+
+    private void schedulePausedHide() {
+        if (pendingPausedHide != null) return; // grace period already running
+        pendingPausedHide = () -> {
+            pendingPausedHide = null;
+            hideMedia();
+        };
+        mediaUpdateHandler.postDelayed(pendingPausedHide, MEDIA_PAUSED_GRACE_MS);
+    }
+
+    private void cancelPausedHide() {
+        if (pendingPausedHide != null) {
+            mediaUpdateHandler.removeCallbacks(pendingPausedHide);
+            pendingPausedHide = null;
         }
     }
 
-    private void releaseWakeLock() {
-        try {
-            if (wakeLock != null && wakeLock.isHeld()) {
-                wakeLock.release();
-                Log.d(TAG, "🔓 PARTIAL_WAKE_LOCK released");
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "Failed to release wakelock: " + t.getMessage());
-        }
-    }
-    
     @Override
     public void onListenerConnected() {
         super.onListenerConnected();

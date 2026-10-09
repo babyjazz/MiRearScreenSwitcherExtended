@@ -104,21 +104,6 @@ public class UriCommandService extends IntentService {
             case "config":
                 handleConfig(uri);
                 break;
-            /* PHASE 1 THROWAWAY: Option A overlay prototype trigger. Delete after device checks. */
-            case "overlay":
-                handleOverlayPrototype();
-                break;
-        }
-    }
-
-    // PHASE 1 THROWAWAY: start the display-1 overlay host (Option A gate).
-    private void handleOverlayPrototype() {
-        try {
-            Intent i = new Intent(this, RearOverlayPrototypeService.class);
-            startService(i);
-            Log.d(TAG, "overlay prototype host started");
-        } catch (Throwable t) {
-            Log.e(TAG, "overlay prototype trigger failed", t);
         }
     }
 
@@ -182,8 +167,7 @@ public class UriCommandService extends IntentService {
                     // Excluded / allowed processes:
                     // 1. MRSS's own Activities (charging, notification, wake, etc.)
                     // 2. the official Xiaomi Launcher (com.xiaomi.subscreencenter.SubScreenLauncher)
-                    if (!rearForegroundApp.contains("RearScreenChargingActivity") &&
-                            !rearForegroundApp.contains("RearScreenNotificationActivity") &&
+                    if (!rearForegroundApp.contains("RearHostActivity") &&
                             !rearForegroundApp.contains("RearScreenWakeupActivity") &&
                             !rearForegroundApp.contains("com.xiaomi.subscreencenter")) {
                         Log.w(TAG, "❌ An app already runs on the rear screen: " + rearForegroundApp);
@@ -262,8 +246,7 @@ public class UriCommandService extends IntentService {
                 String rearForegroundApp = taskService.getForegroundAppOnDisplay(1);
                 if (rearForegroundApp != null && !rearForegroundApp.isEmpty()) {
                     // Excluded / allowed processes
-                    if (!rearForegroundApp.contains("RearScreenChargingActivity") &&
-                            !rearForegroundApp.contains("RearScreenNotificationActivity") &&
+                    if (!rearForegroundApp.contains("RearHostActivity") &&
                             !rearForegroundApp.contains("RearScreenWakeupActivity") &&
                             !rearForegroundApp.contains("com.xiaomi.subscreencenter")) {
                         Log.w(TAG, "❌ Another app is already on the rear screen: " + rearForegroundApp);

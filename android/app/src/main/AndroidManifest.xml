@@ -156,12 +156,6 @@
             android:name=".UriCommandService"
             android:enabled="true"
             android:exported="false"/>
-
-        <!-- PHASE 1 THROWAWAY: Option A overlay prototype host. Delete after device checks. -->
-        <service
-            android:name=".RearOverlayPrototypeService"
-            android:enabled="true"
-            android:exported="false"/>
         
         <!-- V2.7: Rear-screen recording service (foreground service + floating window) -->
         <service
@@ -197,48 +191,18 @@
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
         
-        <!-- V2.3: Rear-screen charging animation Activity -->
+        <!-- Rear-screen host: renders charging / notification / media from RearStack -->
         <activity
-            android:name=".RearScreenChargingActivity"
+            android:name=".RearHostActivity"
             android:exported="true"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
-            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.charging"
+            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.host"
             android:theme="@style/Theme.Transparent"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
             android:directBootAware="true"
             android:showWhenLocked="true"
             android:hardwareAccelerated="true">
-            <meta-data android:name="miui.rear.policy" android:value="miui"/>
-        </activity>
-
-        <!-- V2.4: Rear-screen notification Activity -->
-        <activity
-            android:name=".RearScreenNotificationActivity"
-            android:exported="true"
-            android:excludeFromRecents="true"
-            android:launchMode="singleInstance"
-            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.notification"
-            android:theme="@style/Theme.Transparent"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
-            android:directBootAware="true"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true">
-            <meta-data android:name="miui.rear.policy" android:value="miui"/>
-        </activity>
-
-        <!-- Rear-screen media playback Activity (POC) -->
-        <activity
-            android:name=".RearScreenMediaActivity"
-            android:exported="true"
-            android:excludeFromRecents="true"
-            android:launchMode="singleInstance"
-            android:taskAffinity="com.tgwgroup.MiRearScreenSwitcher.media"
-            android:theme="@style/Theme.Transparent"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
-            android:directBootAware="true"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true">
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
 
