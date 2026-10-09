@@ -22,7 +22,7 @@
 -keep class io.flutter.** { *; }
 -keep class io.flutter.plugins.** { *; }
 
-# Play Core (不使用但需要忽略警告)
+# Play Core (unused, but needed to suppress warnings)
 -dontwarn com.google.android.play.core.**
 
 # Services and Activities

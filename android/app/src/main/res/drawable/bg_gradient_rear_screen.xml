@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 四色渐变反转：左上粉色 -> 右下蓝色 -->
+<!-- Inverted four-color gradient: pink top-left -> blue bottom-right -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <gradient
         android:type="linear"

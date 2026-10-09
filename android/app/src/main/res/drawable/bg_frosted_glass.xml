@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 毛玻璃背景：与主页面完全一致 -->
+<!-- Frosted-glass background: identical to the main page -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <solid android:color="#40FFFFFF" />
     <corners android:radius="32dp" />

@@ -19,10 +19,10 @@ This consistency strongly suggests a fixed OS-level timeout/watchdog, not a race
 Confirmed via `adb logcat`, filtered to the app's own PID, on a real (non-simulated) charger plug/unplug:
 
 ```
-16:40:52.772  RearScreenChargingActivity: onCreate完成 (animation starts, 8s auto-close scheduled)
+16:40:52.772  RearScreenChargingActivity: onCreate done (animation starts, 8s auto-close scheduled)
 16:40:52.774  RearScreenChargingActivity: 🟢 onResume
 ...
-16:40:54.163  RearScreenChargingActivity: 🔴 onDestroy被调用   <- only 1.39s later, not 8s
+16:40:54.163  RearScreenChargingActivity: 🔴 onDestroy called   <- only 1.39s later, not 8s
 ```
 
 And in the full (unfiltered) system log, right before each premature destroy:

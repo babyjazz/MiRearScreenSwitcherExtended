@@ -30,13 +30,13 @@ android {
 
     defaultConfig {
         applicationId = "com.tgwgroup.MiRearScreenSwitcher"
-        minSdk = 24  // Shizuku需要最低24
+        minSdk = 24  // Shizuku requires at least 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
     
-    // Shizuku需要
+    // Shizuku requires it
     buildFeatures {
         aidl = true
     }
@@ -46,7 +46,7 @@ android {
     }
 
     signingConfigs {
-        // 仅当 key.properties 存在时才创建 release 签名配置，避免空值强制转换报错
+        // Only create the release signing config when key.properties exists, avoiding a null-cast error
         if (keystorePropertiesFile.exists()) {
             create("release") {
                 keyAlias = keystoreProperties["keyAlias"] as String

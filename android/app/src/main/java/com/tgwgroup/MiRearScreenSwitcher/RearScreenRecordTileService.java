@@ -2,9 +2,9 @@
  * Author: AntiOblivionis
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
- * Bilibili: 罗德岛T0驭械术师澄闪
+ * Bilibili: 罗德岛T0驭械术师澄闪 (Luodao T0 Yu Xie Shu Shi Cheng Shan)
  *
- * Chief Tester: 汐木泽
+ * Chief Tester: 汐木泽 (Xi Mu Ze)
  *
  * Co-developed with AI assistants:
  * - Cursor
@@ -23,8 +23,8 @@ import android.util.Log;
 import android.widget.Toast;
 
 /**
- * Quick Settings Tile - 背屏录屏
- * 点击后显示/隐藏录屏悬浮窗
+ * Quick Settings Tile - rear-screen recording.
+ * Toggles the recording floating window.
  */
 public class RearScreenRecordTileService extends TileService {
     private static final String TAG = "RearScreenRecordTile";
@@ -35,7 +35,7 @@ public class RearScreenRecordTileService extends TileService {
         
         Tile tile = getQsTile();
         if (tile != null) {
-            // 检查悬浮窗是否正在显示
+            // Check whether the floating window is showing
             boolean isRecording = ScreenRecordService.isRunning();
             tile.setState(isRecording ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
             tile.updateTile();
@@ -47,13 +47,13 @@ public class RearScreenRecordTileService extends TileService {
         super.onClick();
         
         unlockAndRun(() -> {
-            // 检查悬浮窗权限
+            // Check overlay permission
             if (!Settings.canDrawOverlays(this)) {
-                Log.w(TAG, "无悬浮窗权限");
+                Log.w(TAG, "No overlay permission");
                 
                 Toast.makeText(this, "Please grant overlay permission first", Toast.LENGTH_LONG).show();
                 
-                // 跳转到权限设置页面
+                // Jump to the overlay permission settings page
                 Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
                 intent.setData(android.net.Uri.parse("package:" + getPackageName()));
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -62,20 +62,20 @@ public class RearScreenRecordTileService extends TileService {
                 return;
             }
             
-            // 检查是否已在运行
+            // Check whether already running
             if (ScreenRecordService.isRunning()) {
-                // 已有悬浮窗，收起悬浮窗（停止服务）
+                // Floating window already showing; dismiss it (stop service)
                 stopService(new Intent(this, ScreenRecordService.class));
-                Log.d(TAG, "✓ 录屏悬浮窗已关闭");
+                Log.d(TAG, "✓ Recording floating window closed");
                 
-                // 更新Tile状态
+                // Update tile state
                 Tile tile = getQsTile();
                 if (tile != null) {
                     tile.setState(Tile.STATE_INACTIVE);
                     tile.updateTile();
                 }
             } else {
-                // 启动录屏服务（显示悬浮窗）
+                // Start the recording service (show the floating window)
                 Intent intent = new Intent(this, ScreenRecordService.class);
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     startForegroundService(intent);
@@ -83,9 +83,9 @@ public class RearScreenRecordTileService extends TileService {
                     startService(intent);
                 }
                 
-                Log.d(TAG, "✓ 录屏悬浮窗已启动");
+                Log.d(TAG, "✓ Recording floating window started");
                 
-                // 更新Tile状态
+                // Update tile state
                 Tile tile = getQsTile();
                 if (tile != null) {
                     tile.setState(Tile.STATE_ACTIVE);

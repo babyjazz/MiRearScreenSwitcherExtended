@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- V3.5: 充电动画：全屏液体填充 + 中央电量数字 -->
+<!-- V3.5: Charging animation: fullscreen liquid fill + center battery percentage -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/charging_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
     
-    <!-- 全屏液体填充（带重力感应和波浪） -->
+    <!-- Fullscreen liquid fill (with gravity sensing and waves) -->
     <com.tgwgroup.MiRearScreenSwitcher.LightningShapeView
         android:id="@+id/full_screen_liquid"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
     
-    <!-- 安全区域中央的电量数字 -->
+    <!-- Battery percentage centered in the safe area -->
     <TextView
         android:id="@+id/battery_text"
         android:layout_width="match_parent"

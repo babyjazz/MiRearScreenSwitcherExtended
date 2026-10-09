@@ -2,9 +2,9 @@
  * Author: AntiOblivionis
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
- * Bilibili: 罗德岛T0驭械术师澄闪
+ * Bilibili: 罗德岛T0驭械术师澄闪 (Luodao T0 Yu Xie Shu Shi Cheng Shan)
  *
- * Chief Tester: 汐木泽
+ * Chief Tester: 汐木泽 (Xi Mu Ze)
  *
  * Co-developed with AI assistants:
  * - Cursor
@@ -22,9 +22,9 @@ import android.os.Bundle;
 import android.util.Log;
 
 /**
- * V2.6: URI接收Activity
- * 完全透明，只负责转发URI到UriCommandService，然后立即finish
- * 不会显示任何UI，避免跳到MRSS页面
+ * V2.6: URI receiver Activity.
+ * Fully transparent; only forwards the URI to UriCommandService, then finishes immediately.
+ * Shows no UI, avoiding a jump to the MRSS page.
  */
 public class UriReceiverActivity extends Activity {
     private static final String TAG = "UriReceiverActivity";
@@ -33,31 +33,31 @@ public class UriReceiverActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // 不设置任何布局，保持透明
+        // Set no layout; stay transparent
         
         Intent intent = getIntent();
         if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction())) {
             Uri uri = intent.getData();
             if (uri != null && "mrss".equals(uri.getScheme())) {
-                Log.d(TAG, "🔗 URI接收: " + uri.toString());
+                Log.d(TAG, "🔗 URI received: " + uri.toString());
                 
-                // 转发到UriCommandService处理
+                // Forward to UriCommandService
                 Intent serviceIntent = new Intent(this, UriCommandService.class);
                 serviceIntent.setData(uri);
                 startService(serviceIntent);
                 
-                Log.d(TAG, "✓ 已转发到UriCommandService");
+                Log.d(TAG, "✓ Forwarded to UriCommandService");
             }
         }
         
-        // 立即finish，不显示任何UI
+        // Finish immediately; show no UI
         finish();
     }
     
     @Override
     public void finish() {
         super.finish();
-        // 禁用转场动画，完全透明
+        // Disable transition animation; fully transparent
         overridePendingTransition(0, 0);
     }
 }

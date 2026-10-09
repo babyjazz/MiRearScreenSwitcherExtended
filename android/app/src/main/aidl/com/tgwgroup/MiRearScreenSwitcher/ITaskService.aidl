@@ -4,133 +4,132 @@ interface ITaskService {
     void destroy() = 16777114;  // Shizuku required
     
     /**
-     * 获取当前前台应用的包名和taskId
-     * @return "package:taskId" 格式
+     * Get the package name and taskId of the currently foreground app
+     * @return "package:taskId" format
      */
     String getCurrentForegroundApp() = 1;
     
     /**
-     * 通过包名获取taskId
-     * @param packageName 包名
-     * @return taskId，失败返回-1
+     * Get the taskId for a package name
+     * @param packageName package name
+     * @return taskId, or -1 on failure
      */
     int getTaskIdByPackage(String packageName) = 2;
     
     /**
-     * 移动任务到指定显示屏
-     * @param taskId 任务ID
-     * @param displayId 显示屏ID (0=主屏, 1=背屏)
-     * @return 是否成功
+     * Move a task to the specified display
+     * @param taskId task ID
+     * @param displayId display ID (0=main, 1=rear)
+     * @return whether it succeeded
      */
     boolean moveTaskToDisplay(int taskId, int displayId) = 3;
     
     /**
-     * 在指定显示屏启动Activity（尝试保持常亮）
-     * 注意：已移除主动点亮功能，仅尝试设置FLAG_KEEP_SCREEN_ON
-     * @param displayId 显示屏ID (0=主屏, 1=背屏)
-     * @return 是否成功
+     * Launch an Activity on the specified display (attempts to keep the screen on)
+     * Note: active screen-waking was removed; only sets FLAG_KEEP_SCREEN_ON
+     * @param displayId display ID (0=main, 1=rear)
+     * @return whether it succeeded
      */
     boolean launchWakeActivity(int displayId) = 4;
     
     /**
-     * 强制将SystemUI（状态栏）固定在主屏幕
-     * @return 是否成功
+     * Force SystemUI (status bar) to stay on the main display
+     * @return whether it succeeded
      */
     boolean forceStatusBarToMainDisplay() = 5;
     
     /**
-     * 禁用小米背屏Launcher（防止挤占应用）
-     * @return 是否成功
+     * Disable the Xiaomi rear-screen Launcher (prevents it crowding out apps)
+     * @return whether it succeeded
      */
     boolean disableSubScreenLauncher() = 6;
     
     /**
-     * 启用小米背屏Launcher（恢复系统功能）
-     * @return 是否成功
+     * Enable the Xiaomi rear-screen Launcher (restores system function)
+     * @return whether it succeeded
      */
     boolean enableSubScreenLauncher() = 7;
     
     /**
-     * V9新增：检查Launcher进程是否在运行
-     * @return true=进程在运行, false=进程不存在
+     * V9: Check whether the Launcher process is running
+     * @return true=process running, false=process absent
      */
     boolean isLauncherProcessRunning() = 8;
     
     /**
-     * V9新增：杀掉Launcher进程（轻量级操作）
-     * @return 是否成功
+     * V9: Kill the Launcher process (lightweight operation)
+     * @return whether it succeeded
      */
     boolean killLauncherProcess() = 9;
     
-    // 删除未使用的wakeUpDisplay方法声明
+    // Removed unused wakeUpDisplay method declaration
     
     /**
-     * V14.4新增：收回状态栏/控制中心
-     * @return 是否成功
+     * V14.4: Collapse the status bar / control center
+     * @return whether it succeeded
      */
     boolean collapseStatusBar() = 11;
     
     /**
-     * V15新增：获取当前背屏DPI
-     * @return DPI值
+     * V15: Get the current rear-screen DPI
+     * @return DPI value
      */
     int getCurrentRearDpi() = 12;
     
     /**
-     * V15新增：设置背屏DPI
-     * @param dpi DPI值
-     * @return 是否成功
+     * V15: Set the rear-screen DPI
+     * @param dpi DPI value
+     * @return whether it succeeded
      */
     boolean setRearDpi(int dpi) = 13;
     
     /**
-     * V15新增：还原背屏DPI到默认值
-     * @return 是否成功
+     * V15: Reset the rear-screen DPI to default
+     * @return whether it succeeded
      */
     boolean resetRearDpi() = 14;
     
     /**
-     * V15新增：截取背屏画面
-     * @return 是否成功
+     * V15: Capture the rear-screen display
+     * @return whether it succeeded
      */
     boolean takeRearScreenshot() = 15;
     
     /**
-     * V15.1新增：检查任务是否在指定显示屏上运行
-     * @param taskId 任务ID
-     * @param displayId 显示屏ID (0=主屏, 1=背屏)
-     * @return true=任务在指定屏幕运行, false=任务不存在或在其他屏幕
+     * V15.1: Check whether a task runs on the specified display
+     * @param taskId task ID
+     * @param displayId display ID (0=main, 1=rear)
+     * @return true=task runs on the display, false=task absent or on another display
      */
     boolean isTaskOnDisplay(int taskId, int displayId) = 16;
     
     /**
-     * V15.2新增：获取指定显示屏的前台应用
-     * @param displayId 显示屏ID (0=主屏, 1=背屏)
-     * @return "package:taskId" 格式，失败返回null
+     * V15.2: Get the foreground app on the specified display
+     * @param displayId display ID (0=main, 1=rear)
+     * @return "package:taskId" format, or null on failure
      */
     String getForegroundAppOnDisplay(int displayId) = 17;
     
     /**
-     * V2.1新增：设置显示器旋转方向
-     * @param displayId 显示器ID (0=主屏, 1=背屏)
-     * @param rotation 旋转角度 (0=0°, 1=90°, 2=180°, 3=270°)
-     * @return 是否成功
+     * V2.1: Set the display rotation orientation
+     * @param displayId display ID (0=main, 1=rear)
+     * @param rotation rotation angle (0=0°, 1=90°, 2=180°, 3=270°)
+     * @return whether it succeeded
      */
     boolean setDisplayRotation(int displayId, int rotation) = 18;
     
     /**
-     * V2.1新增：获取显示器当前旋转方向
-     * @param displayId 显示器ID (0=主屏, 1=背屏)
-     * @return 旋转角度 (0-3)，-1表示失败
+     * V2.1: Get the current display rotation orientation
+     * @param displayId display ID (0=main, 1=rear)
+     * @return rotation angle (0-3), or -1 on failure
      */
     int getDisplayRotation(int displayId) = 19;
     
     /**
-     * V2.3新增：执行shell命令
-     * @param cmd 要执行的命令
-     * @return 是否成功
+     * V2.3: Execute a shell command
+     * @param cmd command to run
+     * @return whether it succeeded
      */
     boolean executeShellCommand(String cmd) = 20;
     String executeShellCommandWithResult(String cmd) = 21;
 }
-

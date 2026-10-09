@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <!-- 专辑封面铺满背景，压暗 -->
+    <!-- Album art fills the background, dimmed -->
     <ImageView
         android:id="@+id/media_album_art_bg"
         android:layout_width="match_parent"
@@ -23,7 +23,7 @@
         android:layout_height="match_parent"
         android:padding="16dp">
 
-        <!-- 时钟（右上角） -->
+        <!-- Clock (top right) -->
         <TextView
             android:id="@+id/media_clock"
             android:layout_width="wrap_content"
@@ -33,8 +33,8 @@
             android:textColor="#FFFFFF"
             android:textSize="13sp"/>
 
-        <!-- 封面+标题信息一行：用LinearLayout代替RelativeLayout的toStartOf/alignTop交叉依赖，
-             避免任何约束解析歧义，确保封面永远是固定正方形 -->
+        <!-- Cover + title info row: use LinearLayout instead of RelativeLayout's toStartOf/alignTop cross-dependency,
+             avoids any constraint-resolution ambiguity and keeps the cover a fixed square -->
         <LinearLayout
             android:id="@+id/media_row"
             android:layout_width="match_parent"
@@ -44,7 +44,7 @@
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
-            <!-- 专辑封面（固定正方形+圆角，永远70x70dp） -->
+            <!-- Album cover (fixed square with rounded corners, always 70x70dp) -->
             <ImageView
                 android:id="@+id/media_album_art"
                 android:layout_width="70dp"
@@ -53,7 +53,7 @@
                 android:background="@drawable/bg_rounded_square"
                 android:clipToOutline="true"/>
 
-            <!-- 曲目标题+歌手 -->
+            <!-- Track title + artist -->
             <LinearLayout
                 android:id="@+id/media_info"
                 android:layout_width="0dp"
@@ -86,7 +86,7 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 播放控制按钮（大按钮，底部） -->
+        <!-- Playback controls (large buttons, bottom) -->
         <LinearLayout
             android:id="@+id/media_controls"
             android:layout_width="match_parent"

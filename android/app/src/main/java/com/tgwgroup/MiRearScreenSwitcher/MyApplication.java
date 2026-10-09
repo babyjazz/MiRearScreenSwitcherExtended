@@ -2,7 +2,7 @@
  * Author: AntiOblivionis
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
- * Bilibili: 罗德岛T0驭械术师澄闪
+ * Bilibili: 罗德岛T0驭械术师澄闪 (Luodao T0 Yu Xie Shu Shi Cheng Shan)
  * 
  * Co-developed with AI assistants:
  * - Cursor
@@ -20,7 +20,7 @@ import io.flutter.app.FlutterApplication;
 import rikka.sui.Sui;
 
 /**
- * 自定义Application - 初始化Shizuku
+ * Custom Application - initializes Shizuku
  */
 public class MyApplication extends FlutterApplication {
     
@@ -28,7 +28,7 @@ public class MyApplication extends FlutterApplication {
     private static boolean isSui = false;
     
     static {
-        // 关键！在静态块中初始化Sui
+        // Critical: initialize Sui in a static block
         try {
             isSui = Sui.init("com.tgwgroup.MiRearScreenSwitcher");
         } catch (Throwable e) {
@@ -40,7 +40,7 @@ public class MyApplication extends FlutterApplication {
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
         
-        // HiddenAPI豁免（Android 9+）
+        // HiddenAPI exemption (Android 9+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 Class<?> hiddenApiBypass = Class.forName("org.lsposed.hiddenapibypass.HiddenApiBypass");

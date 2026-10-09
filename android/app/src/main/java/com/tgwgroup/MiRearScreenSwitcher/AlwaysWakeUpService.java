@@ -18,14 +18,14 @@ import android.util.Log;
 import rikka.shizuku.Shizuku;
 
 /**
- * V3.5: 未投放应用时常亮服务
- * 以100ms间隔持续发送KEYCODE_WAKEUP唤醒背屏
- * ⚠️ 警告：可能导致烧屏和额外耗电
+ * V3.5: Always-wake service when no app is cast.
+ * Keeps waking the rear screen by repeatedly sending KEYCODE_WAKEUP.
+ * ⚠️ Warning: may cause burn-in and extra battery drain.
  */
 public class AlwaysWakeUpService extends Service {
     private static final String TAG = "AlwaysWakeUpService";
-    private static final int NOTIFICATION_ID = 1001; // 与其他Service共用ID
-    private static final int WAKEUP_INTERVAL_MS = 2000; // 2秒间隔（原100ms过于频繁，每次都会fork一个shell进程）
+    private static final int NOTIFICATION_ID = 1001; // shared ID with other services
+    private static final int WAKEUP_INTERVAL_MS = 2000; // 2s interval (100ms was too frequent; each spawns a shell process)
     
     private ITaskService taskService;
     private Handler wakeupHandler;
@@ -46,7 +46,7 @@ public class AlwaysWakeUpService extends Service {
             taskService = ITaskService.Stub.asInterface(service);
             Log.d(TAG, "✓ TaskService connected");
             
-            // TaskService连接后开始发送wakeup
+            // Start sending wakeup once TaskService is connected
             startWakeupLoop();
         }
 
@@ -55,9 +55,9 @@ public class AlwaysWakeUpService extends Service {
             Log.w(TAG, "⚠️ TaskService disconnected");
             taskService = null;
             
-            // 断开后尝试重连
+            // On disconnect, try to reconnect
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                Log.d(TAG, "🔄 尝试重新绑定TaskService...");
+                Log.d(TAG, "🔄 Trying to rebind TaskService...");
                 bindTaskService();
             }, 1000);
         }
@@ -71,10 +71,10 @@ public class AlwaysWakeUpService extends Service {
         prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
         wakeupHandler = new Handler(Looper.getMainLooper());
         
-        // 创建前台通知
+        // Create foreground notification
         createForegroundNotification();
         
-        // 绑定TaskService
+        // Bind TaskService
         bindTaskService();
     }
     
@@ -90,10 +90,10 @@ public class AlwaysWakeUpService extends Service {
                 return;
             }
             
-            Log.d(TAG, "🔗 开始绑定TaskService...");
+            Log.d(TAG, "🔗 Binding TaskService...");
             Shizuku.bindUserService(serviceArgs, taskServiceConnection);
         } catch (Exception e) {
-            Log.e(TAG, "绑定TaskService失败", e);
+            Log.e(TAG, "Failed to bind TaskService", e);
         }
     }
     
@@ -136,7 +136,7 @@ public class AlwaysWakeUpService extends Service {
             .build();
         
         startForeground(NOTIFICATION_ID, notification);
-        Log.d(TAG, "✓ 前台服务已启动");
+        Log.d(TAG, "✓ Foreground service started");
     }
     
     private void startWakeupLoop() {
@@ -152,29 +152,29 @@ public class AlwaysWakeUpService extends Service {
             public void run() {
                 if (!isRunning) return;
                 
-                // 检查开关状态
+                // Check the toggle state
                 boolean enabled = prefs.getBoolean("always_wakeup_enabled", false);
                 if (!enabled) {
-                    Log.d(TAG, "开关已关闭，停止wakeup循环");
+                    Log.d(TAG, "Toggle off, stopping wakeup loop");
                     stopSelf();
                     return;
                 }
                 
-                // 发送wakeup命令
+                // Send the wakeup command
                 try {
                     if (taskService != null) {
                         taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
                     }
                 } catch (Throwable t) {
-                    Log.w(TAG, "发送wakeup失败: " + t.getMessage());
+                    Log.w(TAG, "Sending wakeup failed: " + t.getMessage());
                 }
                 
-                // 100ms后继续
+                // Continue after the interval
                 wakeupHandler.postDelayed(this, WAKEUP_INTERVAL_MS);
             }
         };
         
-        // 立即开始
+        // Start immediately
         wakeupHandler.post(wakeupRunnable);
         Log.d(TAG, "✓ Wakeup loop started (100ms interval)");
     }
@@ -199,7 +199,7 @@ public class AlwaysWakeUpService extends Service {
         
         stopWakeupLoop();
         
-        // 解绑TaskService
+        // Unbind TaskService
         try {
             if (taskService != null) {
                 Shizuku.unbindUserService(serviceArgs, taskServiceConnection, true);

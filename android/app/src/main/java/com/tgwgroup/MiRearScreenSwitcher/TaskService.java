@@ -2,9 +2,9 @@
  * Author: AntiOblivionis
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
- * Bilibili: 罗德岛T0驭械术师澄闪
+ * Bilibili: 罗德岛T0驭械术师澄闪 (Luodao T0 Yu Xie Shu Shi Cheng Shan)
  * 
- * Chief Tester: 汐木泽
+ * Chief Tester: 汐木泽 (Xi Mu Ze)
  * 
  * Co-developed with AI assistants:
  * - Cursor
@@ -22,7 +22,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
 /**
- * 运行在Shizuku进程中的服务，具有shell权限
+ * Service that runs inside the Shizuku process with shell permissions
  */
 public class TaskService extends ITaskService.Stub {
     private static final String TAG = "TaskService";
@@ -42,7 +42,7 @@ public class TaskService extends ITaskService.Stub {
     public String getCurrentForegroundApp() throws RemoteException {
         try {
 
-            // 执行am stack list，在Shizuku进程中具有shell权限
+            // Run `am stack list`; we have shell permission here inside Shizuku
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", "am stack list");
             pb.redirectErrorStream(true);
             Process process = pb.start();
@@ -54,15 +54,15 @@ public class TaskService extends ITaskService.Stub {
             boolean inDisplayZero = false;
             String line;
             while ((line = reader.readLine()) != null) {
-                // RootTask行：判断displayId
+                // RootTask line: judge by displayId
                 if (line.startsWith("RootTask")) {
                     inDisplayZero = line.contains("displayId=0");
                     continue;
                 }
                 
-                // taskId行（缩进的子行）
+                // taskId line (indented child line)
                 if (inDisplayZero && line.contains("taskId=") && line.contains("/")) {
-                    // 解析:   taskId=1471: com.example.display_switcher/com.example.display_switcher.MainActivity
+                    // Parse: taskId=1471: com.example.display_switcher/com.example.display_switcher.MainActivity
                     int tidStart = line.indexOf("taskId=") + 7;
                     int tidEnd = line.indexOf(':', tidStart);
                     String taskId = line.substring(tidStart, tidEnd).trim();
@@ -71,7 +71,7 @@ public class TaskService extends ITaskService.Stub {
                     int pkgEnd = line.indexOf('/', pkgStart);
                     String packageName = line.substring(pkgStart, pkgEnd).trim();
                     
-                    // 跳过Launcher和应用自己
+                    // Skip the Launcher and this app itself
                     if (packageName.contains("launcher") || 
                         packageName.contains("miui.home") ||
                         packageName.equals("com.tgwgroup.MiRearScreenSwitcher")) {
@@ -102,7 +102,7 @@ public class TaskService extends ITaskService.Stub {
     public int getTaskIdByPackage(String packageName) throws RemoteException {
         try {
 
-            // 执行am stack list，在Shizuku进程中具有shell权限
+            // Run `am stack list`; we have shell permission here inside Shizuku
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", "am stack list");
             Process process = pb.start();
             
@@ -113,7 +113,7 @@ public class TaskService extends ITaskService.Stub {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.contains("taskId=") && line.contains(packageName)) {
-                    // 解析: taskId=1434: com.android.camera/...
+                    // Parse: taskId=1434: com.android.camera/...
                     int start = line.indexOf("taskId=") + 7;
                     int end = line.indexOf(':', start);
                     String taskId = line.substring(start, end).trim();
@@ -142,13 +142,13 @@ public class TaskService extends ITaskService.Stub {
         try {
             long startTime = System.currentTimeMillis();
 
-            // 先获取包名
+            // First get the package name
             String packageName = getPackageNameFromTaskId(taskId);
 
-            // 执行service call命令，在Shizuku进程中具有shell权限
-            // 注意：Android系统的每个显示器都有独立的状态栏（SystemUI�?
-            // 当应用切换到背屏时，它会显示背屏的状态栏，这是系统默认行�?
-            // 要保持主屏状态栏可见需要系统级修改，无法通过应用层实�?
+            // Run the service call command; shell permission available inside Shizuku
+            // Note: each display has its own status bar (SystemUI) in Android
+            // When an app moves to the rear screen, its own rear status bar shows; that is system default behavior
+            // Keeping the main status bar visible requires a system-level change, not possible from the app layer
             String cmd = "am display move-stack " + taskId + " " + displayId;
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
@@ -160,11 +160,11 @@ public class TaskService extends ITaskService.Stub {
             long endTime = System.currentTimeMillis();
             long duration = endTime - startTime;
 
-            // 如果成功移动到背屏（displayId=1），保存任务信息
+            // If the move to the rear display (displayId=1) succeeded, save the task info
             if (success && displayId == 1) {
                 try {
                     if (packageName != null) {
-                        // 保存到广播接收器，以便系统事件后恢复
+                        // Save it to the broadcast receiver so it can be restored after system events
                         RearScreenBroadcastReceiver.saveLastTask(packageName, taskId);
 
                     } else {
@@ -184,7 +184,7 @@ public class TaskService extends ITaskService.Stub {
     }
     
     /**
-     * 根据taskId获取包名（辅助方法）
+     * Get the package name from a taskId (helper).
      */
     private String getPackageNameFromTaskId(int taskId) {
         try {
@@ -198,7 +198,7 @@ public class TaskService extends ITaskService.Stub {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.contains("taskId=" + taskId) && line.contains("/")) {
-                    // 解析: taskId=1471: com.example.app/...
+                    // Parse: taskId=1471: com.example.app/...
                     int pkgStart = line.indexOf(':') + 2;
                     int pkgEnd = line.indexOf('/', pkgStart);
                     if (pkgEnd > pkgStart) {
@@ -225,9 +225,9 @@ public class TaskService extends ITaskService.Stub {
         try {
             long startTime = System.currentTimeMillis();
 
-            // 使用am start命令在指定display上启动RearScreenWakeupActivity
-            // --display参数指定目标display
-            // 注意：RearScreenWakeupActivity使用FLAG_TURN_SCREEN_ON点亮屏幕
+            // Launch RearScreenWakeupActivity with `am start` on the target display
+            // --display picks the target display
+            // Note: RearScreenWakeupActivity lights the screen via FLAG_TURN_SCREEN_ON
             String cmd = "am start --display " + displayId + 
                         " -n com.tgwgroup.MiRearScreenSwitcher/.RearScreenWakeupActivity";
 
@@ -235,7 +235,7 @@ public class TaskService extends ITaskService.Stub {
             pb.redirectErrorStream(true);
             Process process = pb.start();
             
-            // 读取输出
+            // Read the output
             BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getInputStream()), 8192
             );
@@ -265,7 +265,7 @@ public class TaskService extends ITaskService.Stub {
     public boolean disableSubScreenLauncher() throws RemoteException {
         try {
 
-            // 强制停止进程（进程可能会自动重启，需要持续杀死）
+            // Force-stop the process (it may auto-restart, so it must be killed repeatedly)
             String killCmd = "am force-stop com.xiaomi.subscreencenter";
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", killCmd);
@@ -288,12 +288,12 @@ public class TaskService extends ITaskService.Stub {
     }
     
     /**
-     * V12杀进程法：检查Launcher进程是否在运行
+     * V12 kill-process approach: check whether the Launcher process is running.
      */
     @Override
     public boolean isLauncherProcessRunning() throws RemoteException {
         try {
-            // 检查进程是否在运行
+            // Check whether the process is running
             String cmd = "ps -A | grep com.xiaomi.subscreencenter";
             
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
@@ -307,8 +307,8 @@ public class TaskService extends ITaskService.Stub {
             reader.close();
             process.waitFor();
             
-            // 如果有输�?�?进程在运�?�?返回true（需要杀�?
-            // 如果无输�?�?进程不在运行 �?返回false（不需要处理）
+            // If there is output, the process is running; return true (needs killing)
+            // If there is no output, the process is not running; return false (nothing to do)
             boolean isRunning = (line != null && !line.isEmpty());
             
             if (isRunning) {
@@ -324,14 +324,14 @@ public class TaskService extends ITaskService.Stub {
     }
     
     /**
-     * V12杀进程法：尝试杀掉Launcher进程
-     * 返回true = 成功杀掉（说明进程在运行）
-     * 返回false = 失败（说明进程不在运行）
+     * V12 kill-process approach: try to kill the Launcher process.
+     * Returns true = killed successfully (the process was running).
+     * Returns false = failed (the process was not running).
      */
     @Override
     public boolean killLauncherProcess() throws RemoteException {
         try {
-            // 强制停止进程
+            // Force-stop the process
             String cmd = "am force-stop com.xiaomi.subscreencenter";
             
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
@@ -339,12 +339,12 @@ public class TaskService extends ITaskService.Stub {
             
             int exitCode = process.waitFor();
             
-            // force-stop 总是返回0，所以需要检查进程是否真的被杀死
-            // 简单起见，如果命令成功就返回true
+            // force-stop always exits 0, so check whether the process was really killed
+            // For simplicity, return true if the command succeeded
             return (exitCode == 0);
             
         } catch (Exception e) {
-            // 异常也返回false（静默）
+            // On exception, also return false (silently)
             return false;
         }
     }
@@ -353,7 +353,7 @@ public class TaskService extends ITaskService.Stub {
     public boolean enableSubScreenLauncher() throws RemoteException {
         try {
 
-            // 启动SubScreenLauncher（进程会自动启动）
+            // Start SubScreenLauncher (the process auto-starts)
             String startCmd = "am start --display 1 -n com.xiaomi.subscreencenter/.SubScreenLauncher";
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", startCmd);
@@ -384,16 +384,16 @@ public class TaskService extends ITaskService.Stub {
         }
     }
     
-    // 删除未使用的wakeUpDisplay方法
+    // Removed unused wakeUpDisplay method
     
     @Override
     public boolean forceStatusBarToMainDisplay() throws RemoteException {
         try {
 
-            // 新策略：直接展开主屏状态栏，而不是移动或重启SystemUI
-            // 这会强制主屏显示SystemUI，从而保持焦点在主屏
+            // New strategy: expand the main status bar instead of moving/restarting SystemUI
+            // This forces the main display to show SystemUI and keeps focus there
             
-            // 方法1: 展开主屏状态栏（不完全展开，只是激活）
+            // Method 1: expand the main status bar (not fully, just activate it)
             String expandCmd = "cmd statusbar expand-settings";
 
             ProcessBuilder pb1 = new ProcessBuilder("sh", "-c", expandCmd);
@@ -402,9 +402,9 @@ public class TaskService extends ITaskService.Stub {
             
             if (exitCode1 == 0) {
 
-                Thread.sleep(30);  // 短暂延迟
+                Thread.sleep(30);  // brief delay
                 
-                // 立即收起
+                // Collapse it again immediately
                 String collapseCmd = "cmd statusbar collapse";
                 ProcessBuilder pb2 = new ProcessBuilder("sh", "-c", collapseCmd);
                 Process process2 = pb2.start();
@@ -419,8 +419,8 @@ public class TaskService extends ITaskService.Stub {
 
             }
             
-            // 方法2: 强制主屏SystemUI可见（通过wm命令�?
-            // 设置主屏display为默�?
+            // Method 2: force the main SystemUI visible (via wm command)
+            // Set the main display as default
             String wmCmd = "wm set-display-type 0 home";
 
             ProcessBuilder pb3 = new ProcessBuilder("sh", "-c", wmCmd);
@@ -442,7 +442,7 @@ public class TaskService extends ITaskService.Stub {
 
             }
             
-            // 方法3: 检查当前状态栏位置
+            // Method 3: check the current status bar position
 
             ProcessBuilder pb4 = new ProcessBuilder("sh", "-c", "dumpsys window displays | grep -A20 'Display: 0'");
             Process process4 = pb4.start();
@@ -467,14 +467,14 @@ public class TaskService extends ITaskService.Stub {
     }
     
     /**
-     * 收回状态栏/控制中心
-     * @return 是否成功
+     * Collapse the status bar / control center.
+     * @return whether it succeeded
      */
     @Override
     public boolean collapseStatusBar() throws RemoteException {
         try {
 
-            // 使用 cmd statusbar collapse 命令
+            // Use the `cmd statusbar collapse` command
             String cmd = "cmd statusbar collapse";
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
@@ -497,14 +497,14 @@ public class TaskService extends ITaskService.Stub {
     }
     
     /**
-     * 获取当前背屏DPI
-     * @return DPI值
+     * Get the current rear-screen DPI.
+     * @return the DPI value
      */
     @Override
     public int getCurrentRearDpi() throws RemoteException {
         try {
 
-            // 使用 wm density 命令获取display 1的DPI
+            // Use `wm density` to get display 1's DPI
             String cmd = "wm density -d 1";
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
@@ -518,19 +518,19 @@ public class TaskService extends ITaskService.Stub {
             int dpi = 0;
             while ((line = reader.readLine()) != null) {
 
-                // 解析输出: "Physical density: 450" 或 "Override density: 300"
+                // Parse output: "Physical density: 450" or "Override density: 300"
                 if (line.contains("density:")) {
                     String[] parts = line.split(":");
                     if (parts.length > 1) {
                         try {
                             String dpiStr = parts[1].trim();
-                            // 如果是 "Override density: 300"，优先使用
+                            // Prefer "Override density: 300" when present
                             if (line.contains("Override density")) {
                                 dpi = Integer.parseInt(dpiStr);
 
-                                break; // 找到override就不继续找了
+                                break; // stop once override is found
                             } else if (dpi == 0) {
-                                // 如果还没找到override，先记录physical
+                                // Record physical as fallback until override is found
                                 dpi = Integer.parseInt(dpiStr);
 
                             }
@@ -559,15 +559,15 @@ public class TaskService extends ITaskService.Stub {
     }
     
     /**
-     * 设置背屏DPI
-     * @param dpi DPI值
-     * @return 是否成功
+     * Set the rear-screen DPI.
+     * @param dpi the DPI value
+     * @return whether it succeeded
      */
     @Override
     public boolean setRearDpi(int dpi) throws RemoteException {
         try {
 
-            // 使用 wm density 命令设置display 1的DPI
+            // Use `wm density` to set display 1's DPI
             String cmd = "wm density " + dpi + " -d 1";
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
@@ -590,14 +590,14 @@ public class TaskService extends ITaskService.Stub {
     }
     
     /**
-     * 还原背屏DPI到默认值
-     * @return 是否成功
+     * Reset the rear-screen DPI to default.
+     * @return whether it succeeded
      */
     @Override
     public boolean resetRearDpi() throws RemoteException {
         try {
 
-            // 使用 wm density reset 命令还原display 1的DPI
+            // Use `wm density reset` to reset display 1's DPI
             String cmd = "wm density reset -d 1";
 
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
@@ -620,28 +620,28 @@ public class TaskService extends ITaskService.Stub {
     }
     
     /**
-     * 截取背屏画面
-     * @return 是否成功
+     * Capture the rear-screen display.
+     * @return whether it succeeded
      */
     @Override
     public boolean takeRearScreenshot() throws RemoteException {
         try {
-            // 截屏前尝试给背屏发送keycode wakeup
+            // Wake the rear screen before capturing
             try {
                 executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                Thread.sleep(200); // 等待wakeup生效
+                Thread.sleep(200); // wait for the wakeup to take effect
             } catch (Exception e) {
-                Log.w(TAG, "背屏keycode wakeup失败: " + e.getMessage());
+                Log.w(TAG, "Rear-screen keycode wakeup failed: " + e.getMessage());
             }
 
-            // 创建保存目录
+            // Create the save directory
             String mkdirCmd = "mkdir -p /storage/emulated/0/Pictures/RearDisplay";
 
             ProcessBuilder pb1 = new ProcessBuilder("sh", "-c", mkdirCmd);
             Process process1 = pb1.start();
             process1.waitFor();
             
-            // 获取背屏display ID
+            // Get the rear-screen display ID
             String getDisplayIdCmd = "dumpsys SurfaceFlinger --display-id | grep -oE 'Display [0-9]+' | awk 'NR==2{print $2}'";
 
             ProcessBuilder pb2 = new ProcessBuilder("sh", "-c", getDisplayIdCmd);
@@ -656,18 +656,18 @@ public class TaskService extends ITaskService.Stub {
             process2.waitFor();
             
             if (displayId == null || displayId.isEmpty()) {
-                displayId = "1"; // 默认使用1
+                displayId = "1"; // default to 1
 
             } else {
 
             }
             
-            // 生成文件名（带时间戳）
+            // Generate the filename (with timestamp)
             String timestamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss")
                 .format(new java.util.Date());
             String filename = "/storage/emulated/0/Pictures/RearDisplay/RD_" + timestamp + ".png";
             
-            // 执行截图命令
+            // Run the screenshot command
             String screenshotCmd = "screencap -p -d " + displayId + " " + filename;
 
             ProcessBuilder pb3 = new ProcessBuilder("sh", "-c", screenshotCmd);
@@ -675,17 +675,17 @@ public class TaskService extends ITaskService.Stub {
             
             int exitCode = process3.waitFor();
             
-            // 刷新媒体库，让截图出现在相册中
+            // Refresh the media library so the screenshot shows up in the gallery
             String refreshCmd = "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://" + filename;
             ProcessBuilder pb4 = new ProcessBuilder("sh", "-c", refreshCmd);
             pb4.start();
             
-            // 无论成功失败都返回true，让Toast显示成功
+            // Return true regardless, so the Toast shows success
             return true;
             
         } catch (Exception e) {
             Log.e(TAG, "❌ EXCEPTION in takeRearScreenshot", e);
-            // 即使异常也返回true，让Toast显示成功
+            // Even on exception, return true so the Toast shows success
             return true;
         }
     }
@@ -772,15 +772,15 @@ public class TaskService extends ITaskService.Stub {
     }
     
     /**
-     * V2.1: 设置显示器旋转方向
-     * @param displayId 显示器ID (0=主屏, 1=背屏)
-     * @param rotation 旋转角度 (0=0°, 1=90°, 2=180°, 3=270°)
-     * @return 是否成功
+     * V2.1: Set the display rotation orientation.
+     * @param displayId display ID (0=main, 1=rear)
+     * @param rotation angle (0=0°, 1=90°, 2=180°, 3=270°)
+     * @return whether it succeeded
      */
     @Override
     public boolean setDisplayRotation(int displayId, int rotation) throws RemoteException {
         try {
-            // 获取当前背屏前台应用（如果有）
+            // Get the current rear-screen foreground app (if any)
             String currentApp = null;
             int currentTaskId = -1;
             if (displayId == 1) {
@@ -793,7 +793,7 @@ public class TaskService extends ITaskService.Stub {
                 }
             }
             
-            // 使用 wm user-rotation 命令设置旋转
+            // Set rotation via the `wm user-rotation` command
             String cmd = "wm user-rotation -d " + displayId + " lock " + rotation;
             
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
@@ -815,15 +815,15 @@ public class TaskService extends ITaskService.Stub {
             
             int exitCode = process.waitFor();
             
-            // 如果是背屏且有应用在运行，等待500ms后检查并复活
+            // If on the rear display with an app running, wait 500ms then check and revive it
             if (displayId == 1 && exitCode == 0 && currentTaskId > 0) {
                 Thread.sleep(500);
                 
-                // 检查应用是否还在背屏
+                // Check whether the app is still on the rear display
                 boolean stillOnRear = isTaskOnDisplay(currentTaskId, 1);
                 
                 if (!stillOnRear) {
-                    // 应用被关闭了，重新投放
+                    // The app was closed; re-cast it
                     moveTaskToDisplay(currentTaskId, 1);
                 }
             }
@@ -831,20 +831,20 @@ public class TaskService extends ITaskService.Stub {
             return (exitCode == 0);
             
         } catch (Exception e) {
-            Log.e(TAG, "设置旋转异常", e);
+            Log.e(TAG, "Failed to set rotation", e);
             return false;
         }
     }
     
     /**
-     * V2.1: 获取显示器当前旋转方向
-     * @param displayId 显示器ID (0=主屏, 1=背屏)
-     * @return 旋转角度 (0-3)，-1表示失败
+     * V2.1: Get the current display rotation orientation.
+     * @param displayId display ID (0=main, 1=rear)
+     * @return rotation angle (0-3), or -1 on failure
      */
     @Override
     public int getDisplayRotation(int displayId) throws RemoteException {
         try {
-            // 使用 wm user-rotation 命令直接读取，输出格式: "lock 2" 或 "free"
+            // Read rotation directly via `wm user-rotation`; output format: "lock 2" or "free"
             String cmd = "wm user-rotation -d " + displayId;
             
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
@@ -859,7 +859,7 @@ public class TaskService extends ITaskService.Stub {
             process.waitFor();
             
             if (line != null && !line.isEmpty()) {
-                // 解析 "lock 2" 或 "free" 格式
+                // Parse the "lock 2" or "free" format
                 String[] parts = line.trim().split("\\s+");
                 if (parts.length >= 2) {
                     try {
@@ -871,7 +871,7 @@ public class TaskService extends ITaskService.Stub {
             return 0;
             
         } catch (Exception e) {
-            Log.e(TAG, "获取旋转异常", e);
+            Log.e(TAG, "Failed to get rotation", e);
             return 0;
         }
     }
@@ -905,7 +905,7 @@ public class TaskService extends ITaskService.Stub {
             
             int exitCode = process.waitFor();
             
-            // 记录详细输出
+            // Log the detailed output
             if (output.length() > 0) {
                 Log.d(TAG, "Command stdout: " + output.toString().trim());
             }
@@ -916,7 +916,7 @@ public class TaskService extends ITaskService.Stub {
             return (exitCode == 0);
             
         } catch (Exception e) {
-            Log.e(TAG, "执行命令失败: " + cmd, e);
+            Log.e(TAG, "Failed to execute command: " + cmd, e);
             return false;
         }
     }
@@ -943,7 +943,7 @@ public class TaskService extends ITaskService.Stub {
             return output.toString();
             
         } catch (Exception e) {
-            Log.e(TAG, "执行命令失败: " + cmd, e);
+            Log.e(TAG, "Failed to execute command: " + cmd, e);
             return "";
         }
     }

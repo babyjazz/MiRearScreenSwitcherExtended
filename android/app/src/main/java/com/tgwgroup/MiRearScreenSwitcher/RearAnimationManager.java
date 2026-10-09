@@ -2,9 +2,9 @@
  * Author: AntiOblivionis
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
- * Bilibili: 罗德岛T0驭械术师澄闪
+ * Bilibili: 罗德岛T0驭械术师澄闪 (Luodao T0 Yu Xie Shu Shi Cheng Shan)
  *
- * Chief Tester: 汐木�? *
+ * Chief Tester: 汐木泽 (Xi Mu Ze)
  * Co-developed with AI assistants:
  * - Cursor
  * - Claude-4.5-Sonnet
@@ -17,91 +17,91 @@ package com.tgwgroup.MiRearScreenSwitcher;
 import android.util.Log;
 
 /**
- * 背屏动画管理器
- * 统一管理充电动画和通知动画，实现动画打断机制
+ * Rear-screen animation manager.
+ * Manages charging and notification animations and their interrupt mechanism.
  */
 public class RearAnimationManager {
     private static final String TAG = "RearAnimationManager";
     
-    // 动画类型
+    // Animation types
     public enum AnimationType {
-        NONE,           // 无动画
-        CHARGING,       // 充电动画
-        NOTIFICATION,   // 通知动画
-        MEDIA           // 媒体播放动画
+        NONE,           // No animation
+        CHARGING,       // Charging animation
+        NOTIFICATION,   // Notification animation
+        MEDIA           // Media playback animation
     }
     
-    // 当前正在播放的动画类型
+    // Currently playing animation type
     private static volatile AnimationType currentAnimation = AnimationType.NONE;
     
-    // 当前动画是否应该恢复官方Launcher（被新动画打断则不恢复）
+    // Whether the current animation should restore the official Launcher (no restore when interrupted by a newer animation)
     private static volatile boolean shouldRestoreOnDestroy = true;
     
-    // V3.5: 被打断的充电动画是否是常亮模式
+    // V3.5: whether the interrupted charging animation was always-on
     private static volatile boolean interruptedChargingWasAlwaysOn = false;
 
-    // 媒体播放显示是否被通知打断（通知结束后要恢复媒体播放显示）
+    // Whether media playback was interrupted by a notification (restore media when the notification ends)
     private static volatile boolean mediaInterruptedByNotification = false;
     
     /**
-     * 开始播放动画
-     * @param type 动画类型
-     * @return 被打断的旧动画类型（NONE表示没有旧动画）
+     * Start playing an animation.
+     * @param type animation type
+     * @return the interrupted old animation type (NONE if there was none)
      */
     public static synchronized AnimationType startAnimation(AnimationType type) {
         if (type == AnimationType.NONE) {
-            Log.w(TAG, "⚠️ 尝试启动NONE类型的动画，忽略");
+            Log.w(TAG, "⚠️ Attempted to start NONE animation, ignoring");
             return AnimationType.NONE;
         }
         
         AnimationType oldAnimation = currentAnimation;
         
         if (oldAnimation != AnimationType.NONE) {
-            Log.d(TAG, String.format("🔄 新动画[%s]打断旧动画[%s]", type, oldAnimation));
-            // 标记旧动画不需要恢复官方Launcher
+            Log.d(TAG, String.format("🔄 New animation [%s] interrupted old [%s]", type, oldAnimation));
+            // Mark the old animation as not restoring the official Launcher
             shouldRestoreOnDestroy = false;
         } else {
-            Log.d(TAG, String.format("▶️ 开始播放动画[%s]", type));
+            Log.d(TAG, String.format("▶️ Starting animation [%s]", type));
         }
         
-        // 设置新动画为当前动画
+        // Set the new animation as current
         currentAnimation = type;
-        shouldRestoreOnDestroy = true;  // 新动画默认需要恢复
+        shouldRestoreOnDestroy = true;  // new animations restore by default
         
-        return oldAnimation;  // 返回被打断的旧动画
+        return oldAnimation;  // return the interrupted old animation
     }
     
     /**
-     * V3.5: 标记被打断的充电动画是常亮模式
+     * V3.5: Mark the interrupted charging animation as always-on.
      */
     public static synchronized void markInterruptedChargingAsAlwaysOn(boolean alwaysOn) {
         interruptedChargingWasAlwaysOn = alwaysOn;
-        Log.d(TAG, "🔖 被打断的充电动画常亮标记: " + alwaysOn);
+        Log.d(TAG, "🔖 Interrupted charging always-on flag: " + alwaysOn);
     }
     
     /**
-     * V3.5: 检查被打断的充电动画是否需要恢复
+     * V3.5: Whether the interrupted charging animation should resume.
      */
     public static synchronized boolean shouldResumeChargingAnimation() {
         return interruptedChargingWasAlwaysOn;
     }
     
     /**
-     * V3.5: 清除充电动画常亮标记
+     * V3.5: Clear the charging always-on flag.
      */
     public static synchronized void clearChargingAlwaysOnFlag() {
         interruptedChargingWasAlwaysOn = false;
     }
 
     /**
-     * 标记媒体播放显示被通知打断，通知结束后要恢复
+     * Mark that media playback was interrupted by a notification (resume media when the notification ends).
      */
     public static synchronized void markMediaInterruptedByNotification() {
         mediaInterruptedByNotification = true;
     }
 
     /**
-     * 取走"媒体被通知打断"标记（取走后立即清除，避免重复恢复）
+     * Consume the "media interrupted by notification" flag (cleared immediately to avoid duplicate resumes).
      */
     public static synchronized boolean consumeMediaInterruptedByNotificationFlag() {
         boolean was = mediaInterruptedByNotification;
@@ -110,22 +110,22 @@ public class RearAnimationManager {
     }
     
     /**
-     * 结束动画
-     * @param type 动画类型
-     * @return 是否需要恢复官方Launcher
+     * End an animation.
+     * @param type animation type
+     * @return whether the official Launcher should be restored
      */
     public static synchronized boolean endAnimation(AnimationType type) {
         if (currentAnimation != type) {
-            Log.w(TAG, String.format("⚠️ 尝试结束动画[%s]，但当前动画是[%s]", type, currentAnimation));
-            return false;  // 不是当前动画，不需要恢复
+            Log.w(TAG, String.format("⚠️ Tried to end animation [%s], but current is [%s]", type, currentAnimation));
+            return false;  // not the current animation, no restore needed
         }
         
         boolean shouldRestore = shouldRestoreOnDestroy;
         
         if (shouldRestore) {
-            Log.d(TAG, String.format("⏹️ 动画[%s]正常结束，需要恢复官方Launcher", type));
+            Log.d(TAG, String.format("⏹️ Animation [%s] ended normally; restoring official Launcher", type));
         } else {
-            Log.d(TAG, String.format("⏹️ 动画[%s]被打断结束，不需要恢复官方Launcher", type));
+            Log.d(TAG, String.format("⏹️ Animation [%s] ended interrupted; not restoring official Launcher", type));
         }
         
         currentAnimation = AnimationType.NONE;
@@ -135,21 +135,21 @@ public class RearAnimationManager {
     }
     
     /**
-     * 检查是否有动画正在播放
+     * Whether an animation is currently playing.
      */
     public static synchronized boolean isAnimationPlaying() {
         return currentAnimation != AnimationType.NONE;
     }
     
     /**
-     * 获取当前动画类型
+     * Get the current animation type.
      */
     public static synchronized AnimationType getCurrentAnimation() {
         return currentAnimation;
     }
     
     /**
-     * 打断指定类型的动画
+     * Interrupt an animation of the given type.
      */
     private static void interruptAnimation(AnimationType type) {
         android.content.Intent intent;
@@ -170,16 +170,16 @@ public class RearAnimationManager {
         }
         
         try {
-            // 通过静态上下文发送广播（需要从Service获取）
-            // 这里暂时用日志标记，实际发送由调用方处理
-            Log.d(TAG, String.format("🔔 准备发送打断广播: %s", action));
+            // Broadcast via a static context (would need the Service);
+            // for now just log; actual send is handled by the caller
+            Log.d(TAG, String.format("🔔 Preparing to send interrupt broadcast: %s", action));
         } catch (Exception e) {
             Log.e(TAG, "Failed to interrupt animation", e);
         }
     }
     
     /**
-     * 发送打断广播（由Service调用）
+     * Send the interrupt broadcast (called by the Service).
      */
     public static void sendInterruptBroadcast(android.content.Context context, AnimationType type) {
         String action;
@@ -202,7 +202,7 @@ public class RearAnimationManager {
             android.content.Intent intent = new android.content.Intent(action);
             intent.setPackage(context.getPackageName());
             context.sendBroadcast(intent);
-            Log.d(TAG, String.format("✓ 已发送打断广播: %s", action));
+            Log.d(TAG, String.format("✓ Interrupt broadcast sent: %s", action));
         } catch (Exception e) {
             Log.e(TAG, "Failed to send interrupt broadcast", e);
         }

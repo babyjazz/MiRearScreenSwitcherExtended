@@ -1,34 +1,34 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <!-- Shizuku权限（关键！） -->
+    <!-- Shizuku permission (critical!) -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23"/>
-    <!-- 唤醒锁权限 -->
+    <!-- Wake lock permission -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <!-- Overlay权限（用于保持背屏常亮Activity可见 + 录屏悬浮窗） -->
+    <!-- Overlay permission (keeps rear-screen always-on Activity visible + recording floating window) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-    <!-- 录屏权限（Android 10+可能需要） -->
+    <!-- Screen recording permission (may be needed on Android 10+) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <!-- 前台服务权限 (Android 9+) -->
+    <!-- Foreground service permission (Android 9+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <!-- 前台服务类型：特殊用途 (Android 14+) -->
+    <!-- Foreground service type: special use (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
-    <!-- 通知权限 (Android 13+) -->
+    <!-- Notification permission (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <!-- 查询所有应用包权限 (Android 11+，用于通知功能选择应用) -->
+    <!-- Query all app packages permission (Android 11+, used to pick apps for notifications) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
     
     <application
         android:label="MRSS"
         android:name=".MyApplication"
         android:icon="@mipmap/ic_launcher">
-        <!-- 🔑 关键：背屏准入证！已验证有效！ -->
+        <!-- 🔑 Key: rear-screen access pass! Verified working! -->
         <meta-data
             android:name="miui.rear.policy"
             android:value="1"/>
             
-        <!-- Shizuku Provider（重要！） -->
+        <!-- Shizuku Provider (important!) -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="com.tgwgroup.MiRearScreenSwitcher.shizuku"
@@ -37,13 +37,13 @@
             android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         
-        <!-- 自定义Shizuku Service -->
+        <!-- Custom Shizuku Service -->
         <service
             android:name=".TaskService"
             android:permission="moe.shizuku.manager.permission.API_V23"
             android:exported="true" />
         
-        <!-- Quick Settings Tile - 切换至背屏 -->
+        <!-- Quick Settings Tile - switch to rear screen -->
         <service
             android:name=".SwitchToRearTileService"
             android:icon="@drawable/ic_tile_switch_display"
@@ -55,7 +55,7 @@
             </intent-filter>
         </service>
         
-        <!-- Quick Settings Tile - 获取背屏截图 -->
+        <!-- Quick Settings Tile - capture rear-screen screenshot -->
         <service
             android:name=".RearScreenshotTileService"
             android:icon="@drawable/ic_tile_screenshot"
@@ -67,7 +67,7 @@
             </intent-filter>
         </service>
         
-        <!-- V2.7: Quick Settings Tile - 背屏录屏 -->
+        <!-- V2.7: Quick Settings Tile - rear-screen recording -->
         <service
             android:name=".RearScreenRecordTileService"
             android:icon="@drawable/ic_tile_record"
@@ -91,7 +91,7 @@
             </intent-filter>
         </service>
         
-        <!-- 监听背屏状态和系统屏幕状态广播接收器 -->
+        <!-- Receiver listening for rear-screen and system screen-state broadcasts -->
         <receiver
             android:name=".RearScreenBroadcastReceiver"
             android:exported="true">
@@ -103,7 +103,7 @@
             </intent-filter>
         </receiver>
         
-        <!-- 前台Service - 背屏漫游服务 -->
+        <!-- Foreground service - rear-screen roaming service -->
         <service
             android:name=".RearScreenKeeperService"
             android:enabled="true"
@@ -114,7 +114,7 @@
                 android:value="背屏漫游服务"/>
         </service>
         
-        <!-- V2.3: 充电动画服务 -->
+        <!-- V2.3: Charging animation service -->
         <service
             android:name=".ChargingService"
             android:enabled="true"
@@ -125,7 +125,7 @@
                 android:value="充电动画服务"/>
         </service>
         
-        <!-- V3.5: 未投放应用时常亮服务 -->
+        <!-- V3.5: Always-wake service when no app is cast -->
         <service
             android:name=".AlwaysWakeUpService"
             android:enabled="true"
@@ -136,7 +136,7 @@
                 android:value="持续唤醒背屏服务"/>
         </service>
         
-        <!-- V2.4: 通知监听服务 -->
+        <!-- V2.4: Notification listener service -->
         <service
             android:name=".NotificationService"
             android:enabled="true"
@@ -151,7 +151,7 @@
                 android:value="背屏通知服务"/>
         </service>
         
-        <!-- V2.6: URI命令处理服务（后台执行） -->
+        <!-- V2.6: URI command service (runs in background) -->
         <service
             android:name=".UriCommandService"
             android:enabled="true"
@@ -163,7 +163,7 @@
             android:enabled="true"
             android:exported="false"/>
         
-        <!-- V2.7: 背屏录屏服务（前台Service+悬浮窗） -->
+        <!-- V2.7: Rear-screen recording service (foreground service + floating window) -->
         <service
             android:name=".ScreenRecordService"
             android:enabled="true"
@@ -175,7 +175,7 @@
         </service>
 
         
-        <!-- 背屏唤醒Activity（已废弃，改用Service） -->
+        <!-- Rear-screen wake Activity (deprecated, use Service instead) -->
         <activity
             android:name=".RearScreenWakeActivity"
             android:exported="true"
@@ -186,7 +186,7 @@
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden" />
             
-        <!-- 背屏点亮Activity（参考MiRearScreenNotification） -->
+        <!-- Rear-screen light-up Activity (based on MiRearScreenNotification) -->
         <activity
             android:name=".RearScreenWakeupActivity"
             android:exported="true"
@@ -197,7 +197,7 @@
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
         
-        <!-- V2.3: 背屏充电动画Activity -->
+        <!-- V2.3: Rear-screen charging animation Activity -->
         <activity
             android:name=".RearScreenChargingActivity"
             android:exported="true"
@@ -212,7 +212,7 @@
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
 
-        <!-- V2.4: 背屏通知显示Activity -->
+        <!-- V2.4: Rear-screen notification Activity -->
         <activity
             android:name=".RearScreenNotificationActivity"
             android:exported="true"
@@ -227,7 +227,7 @@
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
 
-        <!-- 背屏媒体播放显示Activity（POC） -->
+        <!-- Rear-screen media playback Activity (POC) -->
         <activity
             android:name=".RearScreenMediaActivity"
             android:exported="true"
@@ -242,7 +242,7 @@
             <meta-data android:name="miui.rear.policy" android:value="miui"/>
         </activity>
 
-        <!-- V2.6: URI接收Activity（透明，立即转发） -->
+        <!-- V2.6: URI receiver Activity (transparent, forwards immediately) -->
         <activity
             android:name=".UriReceiverActivity"
             android:exported="true"
@@ -287,7 +287,7 @@
             android:name="flutterEmbedding"
             android:value="2" />
         
-        <!-- 卸载确认对话框的标题和内容 -->
+        <!-- Uninstall confirmation dialog title and content -->
         <meta-data
             android:name="app_description_title"
             android:value="@string/uninstall_title" />

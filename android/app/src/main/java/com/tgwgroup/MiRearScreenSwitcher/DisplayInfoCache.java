@@ -2,9 +2,9 @@
  * Author: AntiOblivionis
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
- * Bilibili: 罗德岛T0驭械术师澄闪
+ * Bilibili: 罗德岛T0驭械术师澄闪 (Luodao T0 Yu Xie Shu Shi Cheng Shan)
  *
- * Chief Tester: 汐木泽
+ * Chief Tester: 汐木泽 (Xi Mu Ze)
  *
  * Co-developed with AI assistants:
  * - Cursor
@@ -19,16 +19,16 @@ import android.graphics.Rect;
 import android.util.Log;
 
 /**
- * 显示屏信息缓存
- * 在应用启动时获取一次，之后直接使用缓存数据
+ * Display info cache.
+ * Fetched once at app startup, then reused from cache.
  */
 public class DisplayInfoCache {
     private static final String TAG = "DisplayInfoCache";
     
-    // 单例
+    // Singleton
     private static volatile DisplayInfoCache instance;
     
-    // 缓存的背屏信息
+    // Cached rear-screen info
     private RearDisplayHelper.RearDisplayInfo cachedInfo;
     private boolean initialized = false;
     
@@ -46,42 +46,42 @@ public class DisplayInfoCache {
     }
     
     /**
-     * 初始化缓存（在应用启动时调用一次）
+     * Initialize the cache (call once at app startup).
      */
     public synchronized void initialize(ITaskService taskService) {
         if (initialized) {
-            Log.d(TAG, "ℹ️ 已初始化，跳过");
+            Log.d(TAG, "ℹ️ Already initialized, skipping");
             return;
         }
         
         try {
-            Log.d(TAG, "🔄 开始获取背屏信息...");
+            Log.d(TAG, "🔄 Fetching rear-screen info...");
             cachedInfo = RearDisplayHelper.getRearDisplayInfo(taskService);
             initialized = true;
             
-            Log.d(TAG, String.format("✅ 背屏信息已缓存: %dx%d, DPI=%d, Cutout=%s",
+            Log.d(TAG, String.format("✅ Rear-screen info cached: %dx%d, DPI=%d, Cutout=%s",
                 cachedInfo.width, cachedInfo.height, cachedInfo.densityDpi,
-                cachedInfo.hasCutout() ? cachedInfo.cutout.toString() : "无"));
+                cachedInfo.hasCutout() ? cachedInfo.cutout.toString() : "none"));
                 
         } catch (Exception e) {
-            Log.e(TAG, "❌ 初始化失败", e);
-            // 设置默认值
+            Log.e(TAG, "❌ Initialization failed", e);
+            // Set defaults
             cachedInfo = new RearDisplayHelper.RearDisplayInfo();
             cachedInfo.width = 904;
             cachedInfo.height = 572;
             cachedInfo.densityDpi = 450;
             cachedInfo.cutout = new Rect(0, 0, 0, 0);
             initialized = true;
-            Log.w(TAG, "⚠️ 使用默认背屏信息");
+            Log.w(TAG, "⚠️ Using default rear-screen info");
         }
     }
     
     /**
-     * 获取缓存的背屏信息
+     * Get the cached rear-screen info.
      */
     public RearDisplayHelper.RearDisplayInfo getCachedInfo() {
         if (!initialized) {
-            Log.w(TAG, "⚠️ 缓存未初始化，返回默认值");
+            Log.w(TAG, "⚠️ Cache not initialized, returning defaults");
             RearDisplayHelper.RearDisplayInfo defaultInfo = new RearDisplayHelper.RearDisplayInfo();
             defaultInfo.width = 904;
             defaultInfo.height = 572;
@@ -93,7 +93,7 @@ public class DisplayInfoCache {
     }
     
     /**
-     * 强制重新获取（用于刷新缓存）
+     * Force a refresh (to invalidate the cache).
      */
     public synchronized void refresh(ITaskService taskService) {
         initialized = false;
@@ -101,19 +101,19 @@ public class DisplayInfoCache {
     }
     
     /**
-     * 检查是否已初始化
+     * Whether the cache has been initialized.
      */
     public boolean isInitialized() {
         return initialized;
     }
     
     /**
-     * 清除缓存（用于测试或重置）
+     * Clear the cache (for testing or reset).
      */
     public synchronized void clear() {
         cachedInfo = null;
         initialized = false;
-        Log.d(TAG, "🗑️ 缓存已清除");
+        Log.d(TAG, "🗑️ Cache cleared");
     }
 }
 

@@ -2,9 +2,9 @@
  * Author: AntiOblivionis
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
- * Bilibili: 罗德岛T0驭械术师澄闪
+ * Bilibili: 罗德岛T0驭械术师澄闪 (Luodao T0 Yu Xie Shu Shi Cheng Shan)
  * 
- * Chief Tester: 汐木泽
+ * Chief Tester: 汐木泽 (Xi Mu Ze)
  * 
  * Co-developed with AI assistants:
  * - Cursor
@@ -27,42 +27,42 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 /**
- * 背屏充电动画Activity
- * 显示充电图标、电量百分比和进度条，5秒后自动关闭并恢复投送app或官方Launcher
+ * Rear-screen charging animation Activity.
+ * Shows the charging icon, battery percentage, and progress bar; auto-closes after 5s and restores the cast app or the official Launcher.
  */
 public class RearScreenChargingActivity extends Activity {
     private static final String TAG = "RearScreenChargingActivity";
-    private int rearTaskId = -1;  // 背屏投送的app的taskId，-1表示没有投送app
-    private boolean autoFinishScheduled = false; // 是否已安排自动销毁
-    private View chargingContainer; // 背屏内容根View，用于安排/取消自动关闭
-    private Runnable pendingFinishRunnable; // 当前排队的自动关闭任务，复用实例时需先取消旧的
+    private int rearTaskId = -1;  // taskId of the app cast to the rear, -1 = no cast app
+    private boolean autoFinishScheduled = false; // whether auto-destroy is scheduled
+    private View chargingContainer; // root View of the rear content; used to schedule/cancel the auto-close
+    private Runnable pendingFinishRunnable; // currently queued auto-close task; cancel the old one when reusing an instance
     
-    // 静态实例追踪，防止旧实例干扰新实例
+    // Static instance tracking; prevents stale instances from interfering with new ones
     private static volatile RearScreenChargingActivity currentInstance = null;
     private static volatile long currentInstanceCreateTime = 0;
-    // 充电动画当前是否可见（背屏休眠/上滑回桌面/被系统移除时为false），供ChargingService常亮模式判断是否需要重新拉起
+    // Whether the charging animation is currently visible (false while rear sleeps / swiped home / removed by system); ChargingService uses this in always-on mode to decide whether to relaunch
     private static volatile boolean showing = false;
 
     public static boolean isShowing() {
         return showing;
     }
 
-    // 最近一次变为可见的时间，ChargingService据此判断重新拉起是否被系统很快移除
+    // Last time it became visible; ChargingService uses this to detect relaunches being quickly removed by the system
     private static volatile long shownSince = 0;
 
     public static long getShownSince() {
         return shownSince;
     }
 
-    // 上一次可见持续了多久（onStart到onStop）
+    // How long the last visible period lasted (onStart to onStop)
     private static volatile long lastVisibleMs = Long.MAX_VALUE;
 
     public static long getLastVisibleMs() {
         return lastVisibleMs;
     }
 
-    // 动画是否由自己结束（8秒到时/拔电/被通知打断），区别于被系统移除或上滑回桌面；
-    // 非常亮模式下ChargingService据此判断本轮是否已完整播放，不再重新拉起
+    // Whether the animation ended on its own (8s timeout / unplug / interrupted by notification), as opposed to being removed by the system or swiped home;
+    // in one-shot mode ChargingService uses this to decide the round played fully and skips relaunching
     private static volatile boolean selfFinished = false;
 
     public static boolean isSelfFinished() {
@@ -74,35 +74,35 @@ public class RearScreenChargingActivity extends Activity {
     }
 
     private void finishBySelf() {
-        // 已被系统移除的旧实例，其残留的定时器不能把新一轮动画标记为已结束
+        // A stale instance removed by the system must not let its leftover timer mark the new animation as ended
         if (isFinishing() || isDestroyed()) return;
         selfFinished = true;
         finish();
     }
 
-    // 静态电量更新方法，供ChargingService直接调用
+    // Static battery update, called directly by ChargingService
     public static void updateBatteryLevelStatic(int newLevel) {
         if (currentInstance != null) {
             currentInstance.updateBatteryLevel(newLevel);
         }
     }
     
-    // 广播接收器：接收立即结束的命令和电量更新
+    // Broadcast receiver: end-now commands and battery updates
     private android.content.BroadcastReceiver finishReceiver = new android.content.BroadcastReceiver() {
         @Override
         public void onReceive(android.content.Context context, android.content.Intent intent) {
             String action = intent.getAction();
             if ("com.tgwgroup.MiRearScreenSwitcher.FINISH_CHARGING_ANIMATION".equals(action)) {
-                Log.d(TAG, "🔌 收到拔电广播，立即销毁");
+                Log.d(TAG, "🔌 Unplug broadcast received; destroying now");
                 finishBySelf();
             } else if ("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_CHARGING_ANIMATION".equals(action)) {
-                Log.d(TAG, "🔄 收到打断广播（新动画来了），立即销毁但不恢复Launcher");
-                // 标记为被打断，onDestroy不恢复Launcher
+                Log.d(TAG, "🔄 Interrupt broadcast received (new animation); destroying without restoring the Launcher");
+                // Mark as interrupted; onDestroy must not restore the Launcher
                 finishBySelf();
             } else if ("com.tgwgroup.MiRearScreenSwitcher.UPDATE_CHARGING_BATTERY".equals(action)) {
-                // V3.5: 接收电量更新
+                // V3.5: battery update
                 int newLevel = intent.getIntExtra("batteryLevel", -1);
-                Log.d(TAG, "📡 收到电量更新广播: " + newLevel + "%");
+                Log.d(TAG, "📡 Battery update broadcast: " + newLevel + "%");
                 if (newLevel >= 0) {
                     updateBatteryLevel(newLevel);
                 }
@@ -113,67 +113,67 @@ public class RearScreenChargingActivity extends Activity {
     public RearScreenChargingActivity() {
         super();
         long time = System.currentTimeMillis();
-        Log.d(TAG, String.format("[%tT.%tL] 🟢 构造函数被调用", time, time));
+        Log.d(TAG, String.format("[%tT.%tL] 🟢 Constructor called", time, time));
     }
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         long onCreateStartTime = System.currentTimeMillis();
-        Log.d(TAG, String.format("[%tT.%tL] 🟡 onCreate开始", onCreateStartTime, onCreateStartTime));
+        Log.d(TAG, String.format("[%tT.%tL] 🟡 onCreate start", onCreateStartTime, onCreateStartTime));
         
         super.onCreate(savedInstanceState);
         
-        // 判断当前所在的屏幕
+        // Determine the current screen
         int displayId = 0;
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             displayId = getDisplay().getDisplayId();
         }
-        Log.d(TAG, String.format("[%tT.%tL] 📍 当前displayId=%d", onCreateStartTime, onCreateStartTime, displayId));
+        Log.d(TAG, String.format("[%tT.%tL] 📍 displayId=%d", onCreateStartTime, onCreateStartTime, displayId));
         
         int level = getIntent().getIntExtra("batteryLevel", 0);
         rearTaskId = getIntent().getIntExtra("rearTaskId", -1);
         
-        // ✅ 如果在主屏(displayId == 0)，什么都不做，等待被移动到背屏
+        // ✅ If on the main display (displayId == 0), do nothing and wait to be moved to the rear
         if (displayId == 0) {
-            Log.d(TAG, String.format("[%tT.%tL] 💤 在主屏启动，保持透明占位符，等待移动", 
+            Log.d(TAG, String.format("[%tT.%tL] 💤 Started on the main display; staying a transparent placeholder until moved", 
                 onCreateStartTime, onCreateStartTime));
-            return; // 不设置内容，不添加flags，只是透明占位符
+            return; // no content, no flags; just a transparent placeholder
         }
         
-        // --- 以下代码只在背屏(displayId == 1)执行 ---
-        Log.d(TAG, String.format("[%tT.%tL] 🎯 在背屏执行，开始设置内容", onCreateStartTime, onCreateStartTime));
+        // --- Code below only runs on the rear display (displayId == 1) ---
+        Log.d(TAG, String.format("[%tT.%tL] 🎯 On the rear display; setting up content", onCreateStartTime, onCreateStartTime));
         
-        // V3.3: 保持常亮 + 锁屏显示
+        // V3.3: keep the screen on + show when locked
         getWindow().addFlags(
             android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
             android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
         );
         
-        // 适配新API：锁屏时显示
+        // Adapt to the new API: show when locked
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
         }
         
-        // V3.5: 优化渲染性能（解决DequeueBuffer超时）
+        // V3.5: render performance (fixes DequeueBuffer timeouts)
         getWindow().setFlags(
             android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         );
         
-        // V3.16: 移除120Hz重新设置，系统自动管理刷新率
+        // V3.16: removed the 120Hz override; the system manages the refresh rate
         
-        // ⚠️ 关键：在 setContentView 之前强制使用背屏DPI！
+        // ⚠️ Critical: force the rear DPI before setContentView!
         forceRearScreenDensityBeforeInflate();
         
         setContentView(R.layout.activity_rear_screen_charging);
         
         long afterSetContentViewTime = System.currentTimeMillis();
-        Log.d(TAG, String.format("[%tT.%tL] 🟠 setContentView完成", 
+        Log.d(TAG, String.format("[%tT.%tL] 🟠 setContentView done", 
             afterSetContentViewTime, afterSetContentViewTime));
         
         
         long afterGetIntentTime = System.currentTimeMillis();
-        Log.d(TAG, String.format("[%tT.%tL] ⚡ Intent数据: Battery=%d%%, rearTaskId=%d",
+        Log.d(TAG, String.format("[%tT.%tL] ⚡ Intent data: Battery=%d%%, rearTaskId=%d",
             afterGetIntentTime, afterGetIntentTime, level, rearTaskId));
 
         chargingContainer = findViewById(R.id.charging_container);
@@ -181,36 +181,36 @@ public class RearScreenChargingActivity extends Activity {
         applyChargingState(level);
 
         long onCreateEndTime = System.currentTimeMillis();
-        Log.d(TAG, String.format("[%tT.%tL] ✅ onCreate完成 (总耗时%dms)", 
+        Log.d(TAG, String.format("[%tT.%tL] ✅ onCreate done (took %dms)", 
             onCreateEndTime, onCreateEndTime, onCreateEndTime - onCreateStartTime));
         
-        // 注册广播接收器（监听拔电、打断和电量更新事件）
+        // Register broadcast receivers (unplug, interrupt, and battery update)
         android.content.IntentFilter finishFilter = new android.content.IntentFilter();
         finishFilter.addAction("com.tgwgroup.MiRearScreenSwitcher.FINISH_CHARGING_ANIMATION");
         finishFilter.addAction("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_CHARGING_ANIMATION");
-        finishFilter.addAction("com.tgwgroup.MiRearScreenSwitcher.UPDATE_CHARGING_BATTERY");  // V3.5: 监听电量更新
+        finishFilter.addAction("com.tgwgroup.MiRearScreenSwitcher.UPDATE_CHARGING_BATTERY");  // V3.5: battery updates
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(finishReceiver, finishFilter, android.content.Context.RECEIVER_NOT_EXPORTED);
         } else {
             registerReceiver(finishReceiver, finishFilter);
         }
         
-        // 注册LocalBroadcastManager接收器（监听电量更新）
+        // Register LocalBroadcastManager receivers (battery updates)
         // androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).registerReceiver(finishReceiver, finishFilter);
-        Log.d(TAG, String.format("[%tT.%tL] ✅ 已注册充电动画广播接收器", onCreateEndTime, onCreateEndTime));
-        Log.d(TAG, "📡 广播接收器已注册，监听: FINISH_CHARGING_ANIMATION, INTERRUPT_CHARGING_ANIMATION, UPDATE_CHARGING_BATTERY");
+        Log.d(TAG, String.format("[%tT.%tL] ✅ Charging broadcast receivers registered", onCreateEndTime, onCreateEndTime));
+        Log.d(TAG, "📡 Broadcast receivers registered: FINISH_CHARGING_ANIMATION, INTERRUPT_CHARGING_ANIMATION, UPDATE_CHARGING_BATTERY");
         
-        // 设置为当前实例
+        // Set as the current instance
         currentInstance = this;
         currentInstanceCreateTime = onCreateEndTime;
         
-        // 测试代码已移除
+        // Test code removed
     }
 
     /**
-     * android:launchMode="singleInstance"：若上一轮动画尚未finish()（常亮模式/被系统杀掉未清理等），
-     * 新的充电事件不会触发onCreate，而是复用现有实例并回调onNewIntent。
-     * 必须在这里重新应用电量/动画状态，否则会静默什么都不显示。
+     * With android:launchMode="singleInstance": if the previous animation has not finished() (always-on mode / killed without cleanup),
+     * a new charge event does not trigger onCreate; the existing instance is reused via onNewIntent.
+     * The battery/animation state must be reapplied here or it silently shows nothing.
      */
     @Override
     protected void onNewIntent(Intent intent) {
@@ -225,10 +225,10 @@ public class RearScreenChargingActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             displayId = getDisplay() != null ? getDisplay().getDisplayId() : 0;
         }
-        Log.d(TAG, String.format("🔁 onNewIntent复用实例: displayId=%d, battery=%d%%", displayId, level));
+        Log.d(TAG, String.format("🔁 onNewIntent reusing instance: displayId=%d, battery=%d%%", displayId, level));
 
         if (displayId != 1 || chargingContainer == null) {
-            // 仍在主屏占位或内容尚未初始化，等待被移动到背屏后走onResume补偿逻辑
+            // Still a main-screen placeholder or content not yet initialized; rely on the onResume compensation after the move
             return;
         }
 
@@ -236,8 +236,8 @@ public class RearScreenChargingActivity extends Activity {
     }
 
     /**
-     * 显示/重置充电动画内容：设置电量、启动液体填充动画、安排（或不安排）自动关闭。
-     * 供onCreate首次展示和onNewIntent复用实例时共用。
+     * Show/reset the charging content: set the battery level, start the liquid-fill animation, and schedule (or skip) the auto-close.
+     * Shared by the first onCreate display and onNewIntent instance reuse.
      */
     private void applyChargingState(int level) {
         LightningShapeView fullScreenLiquid = findViewById(R.id.full_screen_liquid);
@@ -250,7 +250,7 @@ public class RearScreenChargingActivity extends Activity {
         startFullScreenLiquidAnimation(fullScreenLiquid, level);
         startCenterTextAnimation(batteryText);
 
-        // 取消上一轮可能还排队的自动关闭任务，避免提前把新一轮动画关掉
+        // Cancel any still-queued auto-close from the previous round so it cannot kill the new animation early
         if (pendingFinishRunnable != null) {
             chargingContainer.removeCallbacks(pendingFinishRunnable);
             pendingFinishRunnable = null;
@@ -260,9 +260,9 @@ public class RearScreenChargingActivity extends Activity {
             .getBoolean("charging_always_on_enabled", false);
 
         if (chargingAlwaysOn) {
-            Log.d(TAG, "🎬 动画已启动，充电常亮模式，不自动关闭");
+            Log.d(TAG, "🎬 Animation started; charging always-on mode, no auto-close");
         } else {
-            Log.d(TAG, "🎬 动画已启动，8秒后自动关闭");
+            Log.d(TAG, "🎬 Animation started; auto-close in 8s");
             pendingFinishRunnable = this::finishBySelf;
             chargingContainer.postDelayed(pendingFinishRunnable, 8000);
         }
@@ -270,35 +270,57 @@ public class RearScreenChargingActivity extends Activity {
     }
 
     @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // When move-stack lands on the rear (configChanges include density/screenSize), this runs; onResume may not
+        recreateIfMovedToRear();
+    }
+
+    /**
+     * After the main-screen placeholder is move-stacked to the rear, onCreate already returned early (no content, no unplug receiver),
+     * so recreate on the rear via the full onCreate rear branch.
+     */
+    private boolean recreateIfMovedToRear() {
+        if (chargingContainer != null || isFinishing() || getDisplay() == null || getDisplay().getDisplayId() != 1) {
+            return false;
+        }
+        Log.d(TAG, "🔄 Placeholder instance reached the rear; recreating content");
+        recreate();
+        return true;
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         long resumeTime = System.currentTimeMillis();
         Log.d(TAG, String.format("[%tT.%tL] 🟢 onResume", resumeTime, resumeTime));
-        
-        // V3.3: 再次确保Window flags（保持常亮 + 锁屏显示）
+
+        if (recreateIfMovedToRear()) return;
+
+        // V3.3: re-assert window flags (keep on + show when locked)
         getWindow().addFlags(
             android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
             android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
         );
         
-        // 确保锁屏显示设置持续生效
+        // Ensure the show-when-locked setting keeps applying
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
         }
 
-        // 补偿：若因主屏占位未安排自动销毁，则在背屏resume时安排
+        // Compensation: if the main-screen placeholder skipped auto-destroy, schedule it on rear resume
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             int displayId = getDisplay() != null ? getDisplay().getDisplayId() : 0;
             if (displayId == 1 && !autoFinishScheduled) {
-                // V3.5: 检查充电常亮开关
+                // V3.5: check the charging always-on toggle
                 boolean chargingAlwaysOn = getSharedPreferences("mrss_settings", MODE_PRIVATE)
                     .getBoolean("charging_always_on_enabled", false);
                 
                 if (!chargingAlwaysOn) {
-                    Log.d(TAG, "⏱️ 未安排自动销毁，补偿安排5秒后finish");
+                    Log.d(TAG, "⏱️ Auto-destroy not scheduled; compensating with a 5s finish");
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::finishBySelf, 5000);
                 } else {
-                    Log.d(TAG, "💡 充电常亮模式，不自动销毁");
+                    Log.d(TAG, "💡 Charging always-on; no auto-destroy");
                 }
                 autoFinishScheduled = true;
             }
@@ -310,8 +332,8 @@ public class RearScreenChargingActivity extends Activity {
         super.onStart();
         showing = true;
         shownSince = System.currentTimeMillis();
-        // 锁屏无操作时系统约1秒后让设备休眠，并把SubScreenLauncher拉到前台移除我们；
-        // 动画真正可见后再唤醒一次背屏，才能让它保持亮着（在move-stack后立即唤醒太早，不起作用）
+        // With no interaction, the system sleeps the device after ~1s and pulls SubScreenLauncher to the front, removing us;
+        // waking the rear again only after the animation is actually visible keeps it lit (waking right after move-stack is too early and does nothing)
         if (getDisplay() != null && getDisplay().getDisplayId() == 1) {
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                 if (!showing) return;
@@ -320,7 +342,7 @@ public class RearScreenChargingActivity extends Activity {
                 try {
                     if (ts != null) ts.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
                 } catch (Throwable t) {
-                    Log.w(TAG, "可见后唤醒背屏失败: " + t.getMessage());
+                    Log.w(TAG, "Failed to wake the rear after becoming visible: " + t.getMessage());
                 }
             }, 500);
         }
@@ -336,62 +358,62 @@ public class RearScreenChargingActivity extends Activity {
     @Override
     protected void onDestroy() {
         long destroyTime = System.currentTimeMillis();
-        Log.d(TAG, String.format("[%tT.%tL] 🔴 onDestroy被调用", destroyTime, destroyTime));
+        Log.d(TAG, String.format("[%tT.%tL] 🔴 onDestroy called", destroyTime, destroyTime));
         
-        // 注销广播接收器
+        // Unregister broadcast receivers
         try {
             unregisterReceiver(finishReceiver);
-            Log.d(TAG, String.format("[%tT.%tL] ✅ 已注销充电动画广播接收器", destroyTime, destroyTime));
+            Log.d(TAG, String.format("[%tT.%tL] ✅ Charging broadcast receivers unregistered", destroyTime, destroyTime));
         } catch (Exception e) {
             Log.w(TAG, "Failed to unregister finish receiver: " + e.getMessage());
         }
         
-        // 注销LocalBroadcastManager接收器
+        // Unregister LocalBroadcastManager receivers
         // try {
         //     androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).unregisterReceiver(finishReceiver);
-        //     Log.d(TAG, String.format("[%tT.%tL] ✅ 已注销LocalBroadcastManager接收器", destroyTime, destroyTime));
+        //     Log.d(TAG, String.format("[%tT.%tL] ✅ LocalBroadcastManager receivers unregistered", destroyTime, destroyTime));
         // } catch (Exception e) {
         //     Log.w(TAG, "Failed to unregister LocalBroadcastManager receiver: " + e.getMessage());
         // }
         
         super.onDestroy();
         
-        // 检查是否是当前实例，防止旧实例干扰新实例
+        // Check whether this is the current instance; protects the new instance from stale ones
         if (this != currentInstance) {
-            Log.w(TAG, String.format("[%tT.%tL] ⚠️ 这是旧实例，跳过恢复操作", destroyTime, destroyTime));
+            Log.w(TAG, String.format("[%tT.%tL] ⚠️ Stale instance; skipping restore", destroyTime, destroyTime));
             return;
         }
-        // 清除静态引用，避免已销毁的实例（及其View树）被静态字段持续持有导致内存泄漏
+        // Clear the static reference so a destroyed instance (and its View tree) is not held forever by static fields (memory leak)
         currentInstance = null;
 
-        // 通知动画管理器：充电动画结束
+        // Animation manager: charging animation ended
         boolean shouldRestore = RearAnimationManager.endAnimation(RearAnimationManager.AnimationType.CHARGING);
         
-        // 只有正常结束时才恢复Launcher，被打断时不恢复
+        // Restore the Launcher only on a normal end; not when interrupted
         if (!shouldRestore) {
-            Log.d(TAG, String.format("[%tT.%tL] 🔄 充电动画被打断，跳过恢复Launcher", destroyTime, destroyTime));
+            Log.d(TAG, String.format("[%tT.%tL] 🔄 Charging animation interrupted; skipping Launcher restore", destroyTime, destroyTime));
             return;
         }
         
-        // 在背屏恢复投送app或官方Launcher（仅当在背屏时）
+        // On the rear, restore the cast app or the official Launcher (only when on the rear)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             int currentDisplayId = getDisplay() != null ? getDisplay().getDisplayId() : 0;
-            Log.d(TAG, String.format("[%tT.%tL] 📍 当前displayId=%d", destroyTime, destroyTime, currentDisplayId));
+            Log.d(TAG, String.format("[%tT.%tL] 📍 displayId=%d", destroyTime, destroyTime, currentDisplayId));
             
             if (currentDisplayId == 1) {
                 final int finalTaskId = rearTaskId;
                 
-                // 在后台线程执行恢复操作，不阻塞onDestroy
+                // Run the restore on a background thread; do not block onDestroy
                 new Thread(() -> {
                     try {
-                        // 等待50ms让Activity完全销毁
+                        // Wait 50ms for the Activity to fully destroy
                         Thread.sleep(50);
                         
                         if (finalTaskId > 0) {
-                            Log.d(TAG, "⚡ 恢复投送app (taskId=" + finalTaskId + ")");
+                            Log.d(TAG, "⚡ Restoring the cast app (taskId=" + finalTaskId + ")");
                             restoreProjectedApp(finalTaskId);
                         } else {
-                            Log.d(TAG, "⚡ 恢复官方Launcher");
+                            Log.d(TAG, "⚡ Restoring the official Launcher");
                             restoreOfficialLauncher();
                         }
                     } catch (Exception e) {
@@ -404,47 +426,47 @@ public class RearScreenChargingActivity extends Activity {
     
     private void restoreProjectedApp(int taskId) {
         try {
-            // 通过ChargingService获取TaskService并恢复投送的app
+            // Get the TaskService from ChargingService and restore the cast app
             ITaskService taskService = ChargingService.getTaskService();
             if (taskService != null) {
-                // 步骤1: 先禁用官方Launcher（防止它抢占背屏）
+                // Step 1: disable the official Launcher first (so it does not grab the rear screen)
                 taskService.disableSubScreenLauncher();
                 
-                // 步骤2: 等待200ms让系统稳定（增加延迟）
+                // Step 2: wait 200ms for the system to settle (extra delay)
                 try {
                     Thread.sleep(200);
                 } catch (InterruptedException ignored) {}
                 
-                // 步骤3: 移动投送app回到背屏
+                // Step 3: move the cast app back to the rear screen
                 taskService.executeShellCommand(
                     "am display move-stack " + taskId + " 1"
                 );
                 
-                // 步骤4: 再等待200ms确保app已移动
+                // Step 4: wait another 200ms to confirm the move
                 try {
                     Thread.sleep(200);
                 } catch (InterruptedException ignored) {}
                 
-                // 步骤5: 再次确认移动（双重保险）
+                // Step 5: re-verify the move (belt and suspenders)
                 taskService.executeShellCommand(
                     "am display move-stack " + taskId + " 1"
                 );
                 
-                // 步骤6: 等待300ms让app完全显示
+                // Step 6: wait 300ms for the app to fully show
                 try {
                     Thread.sleep(300);
                 } catch (InterruptedException ignored) {}
                 
-                // 步骤7: 不启用官方Launcher（保持禁用状态，让投送app继续占据背屏）
-                // taskService.enableSubScreenLauncher(); // ❌ 不要启用，否则会抢占背屏
+                // Step 7: do not enable the official Launcher (keep it disabled so the cast app keeps the rear screen)
+                // taskService.enableSubScreenLauncher(); // ❌ do not enable; it will grab the rear screen
                 
-                // 步骤8: 重新启动RearScreenKeeperService来监控恢复的app
+                // Step 8: restart RearScreenKeeperService to monitor the restored app
                 restartKeeperService(taskId);
                 
                 Log.d(TAG, "✅ Projected app restored (taskId=" + taskId + ")");
             } else {
                 Log.w(TAG, "TaskService not available from ChargingService");
-                // 回退到MainActivity
+                // Fall back to MainActivity
                 MainActivity mainActivity = MainActivity.getCurrentInstance();
                 if (mainActivity != null) {
                     mainActivity.executeShellCommand(
@@ -454,7 +476,7 @@ public class RearScreenChargingActivity extends Activity {
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to restore projected app", e);
-            // 如果恢复投送app失败，恢复监控并回退到官方Launcher
+            // If restoring the cast app failed, restore monitoring and fall back to the official Launcher
             RearScreenKeeperService.resumeMonitoring();
             restoreOfficialLauncher();
         }
@@ -462,20 +484,20 @@ public class RearScreenChargingActivity extends Activity {
     
     private void restartKeeperService(int taskId) {
         try {
-            // 获取包名和taskId信息
+            // Get the package name and taskId
             String lastTask = SwitchToRearTileService.getLastMovedTask();
             if (lastTask != null) {
-                // 启动RearScreenKeeperService
+                // Start RearScreenKeeperService
                 Intent serviceIntent = new Intent(this, RearScreenKeeperService.class);
                 serviceIntent.putExtra("lastMovedTask", lastTask);
                 
-                // V2.5: 传递背屏常亮开关状态
+                // V2.5: pass the rear-screen always-on toggle state
                 try {
                     android.content.SharedPreferences prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE);
                     boolean keepScreenOnEnabled = prefs.getBoolean("flutter.keep_screen_on_enabled", true);
                     serviceIntent.putExtra("keepScreenOnEnabled", keepScreenOnEnabled);
                 } catch (Exception e) {
-                    // 默认为开启
+                    // Default: on
                     serviceIntent.putExtra("keepScreenOnEnabled", true);
                 }
                 
@@ -490,7 +512,7 @@ public class RearScreenChargingActivity extends Activity {
     
     private void restoreOfficialLauncher() {
         try {
-            // 通过ChargingService获取TaskService并恢复官方Launcher
+            // Get the TaskService from ChargingService and restore the official Launcher
             ITaskService taskService = ChargingService.getTaskService();
             if (taskService != null) {
                 taskService.executeShellCommand(
@@ -499,7 +521,7 @@ public class RearScreenChargingActivity extends Activity {
                 Log.d(TAG, "✅ Official launcher restored");
             } else {
                 Log.w(TAG, "TaskService not available from ChargingService");
-                // 回退到MainActivity
+                // Fall back to MainActivity
                 MainActivity mainActivity = MainActivity.getCurrentInstance();
                 if (mainActivity != null) {
                     mainActivity.executeShellCommand(
@@ -513,19 +535,19 @@ public class RearScreenChargingActivity extends Activity {
     }
     
     /**
-     * 在inflate布局之前强制使用背屏DPI
+     * Force the rear-screen DPI before inflating the layout.
      */
     private void forceRearScreenDensityBeforeInflate() {
         try {
-            // 从缓存获取背屏DPI（适配所有小米双屏设备）
+            // Get the rear DPI from the cache (works across Xiaomi dual-screen devices)
             RearDisplayHelper.RearDisplayInfo info = DisplayInfoCache.getInstance().getCachedInfo();
             int rearScreenDpi = info.densityDpi;
             
-            // 如果缓存未初始化，立即执行dumpsys获取真实DPI
+            // If the cache is not initialized, run dumpsys now for the real DPI
             if (rearScreenDpi <= 0) {
-                Log.w(TAG, "⚠️ 背屏DPI未缓存，尝试实时获取");
+                Log.w(TAG, "⚠️ Rear DPI not cached; fetching live");
                 
-                // 尝试获取TaskService（带重试机制）
+                // Try to obtain TaskService (with retries)
                 ITaskService taskService = null;
                 for (int retry = 0; retry < 3; retry++) {
                     taskService = ChargingService.getTaskService();
@@ -537,7 +559,7 @@ public class RearScreenChargingActivity extends Activity {
                         break;
                     }
                     
-                    Log.w(TAG, String.format("⏳ TaskService未连接，重试 %d/3", retry + 1));
+                    Log.w(TAG, String.format("⏳ TaskService not connected; retry %d/3", retry + 1));
                     try {
                         Thread.sleep(200);
                     } catch (InterruptedException e) {
@@ -550,13 +572,13 @@ public class RearScreenChargingActivity extends Activity {
                         DisplayInfoCache.getInstance().initialize(taskService);
                         info = DisplayInfoCache.getInstance().getCachedInfo();
                         rearScreenDpi = info.densityDpi;
-                        Log.d(TAG, "✅ 实时获取背屏DPI: " + rearScreenDpi);
+                        Log.d(TAG, "✅ Live rear DPI: " + rearScreenDpi);
                     } catch (Exception e) {
-                        Log.e(TAG, "❌ 实时获取背屏DPI失败", e);
+                        Log.e(TAG, "❌ Failed to fetch the rear DPI live", e);
                         return;
                     }
                 } else {
-                    Log.e(TAG, "❌ TaskService重试3次后仍不可用，跳过DPI强制");
+                    Log.e(TAG, "❌ TaskService still unavailable after 3 retries; skipping DPI force");
                     return;
                 }
             }
@@ -564,7 +586,7 @@ public class RearScreenChargingActivity extends Activity {
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
             int currentDpi = metrics.densityDpi;
             
-            Log.d(TAG, String.format("🔧 inflate前 - 当前DPI=%d, 背屏DPI=%d", currentDpi, rearScreenDpi));
+            Log.d(TAG, String.format("🔧 Before inflate - current DPI=%d, rear DPI=%d", currentDpi, rearScreenDpi));
             
             metrics.densityDpi = rearScreenDpi;
             metrics.density = rearScreenDpi / 160f;
@@ -575,23 +597,23 @@ public class RearScreenChargingActivity extends Activity {
             
             getResources().updateConfiguration(config, metrics);
             
-            Log.d(TAG, String.format("✅ inflate前已强制应用背屏DPI: %d", metrics.densityDpi));
+            Log.d(TAG, String.format("✅ Forced rear DPI before inflate: %d", metrics.densityDpi));
                 
         } catch (Exception e) {
-            Log.e(TAG, "❌ inflate前应用DPI失败", e);
+            Log.e(TAG, "❌ Failed to apply DPI before inflate", e);
         }
     }
     
     /**
-     * V3.5: 全屏液体填充动画（非线性，从0到目标电量）
+     * V3.5: fullscreen liquid-fill animation (non-linear, from 0 to the target battery level).
      */
     private void startFullScreenLiquidAnimation(LightningShapeView liquidView, int targetLevel) {
-        // 目标填充比例
+        // Target fill ratio
         float targetFillLevel = targetLevel / 100f;
         
-        // 创建非线性填充动画（DecelerateInterpolator - 减速效果）
+        // Non-linear fill animation (DecelerateInterpolator - deceleration)
         android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0f, targetFillLevel);
-        animator.setDuration(2000); // 2秒填充动画
+        animator.setDuration(2000); // 2s fill animation
         animator.setInterpolator(new android.view.animation.DecelerateInterpolator(2.5f));
         
         animator.addUpdateListener(animation -> {
@@ -600,11 +622,11 @@ public class RearScreenChargingActivity extends Activity {
         });
         
         animator.start();
-        Log.d(TAG, String.format("🌊 全屏液体填充动画已启动: 0%% → %d%%", targetLevel));
+        Log.d(TAG, String.format("🌊 Fullscreen liquid fill started: 0%% → %d%%", targetLevel));
     }
     
     /**
-     * V3.5: 中央电量数字淡入动画
+     * V3.5: center battery-number fade-in.
      */
     private void startCenterTextAnimation(TextView textView) {
         textView.setAlpha(0f);
@@ -616,53 +638,53 @@ public class RearScreenChargingActivity extends Activity {
             .scaleX(1f)
             .scaleY(1f)
             .setDuration(800)
-            .setStartDelay(600) // 液体填充开始后显示
+            .setStartDelay(600) // appear after the liquid fill starts
             .setInterpolator(new android.view.animation.DecelerateInterpolator(2.0f))
             .start();
     }
     
     /**
-     * V3.5: 更新电量显示（充电常亮模式下实时更新）
+     * V3.5: update the battery display (live updates in always-on mode).
      */
     private void updateBatteryLevel(int newLevel) {
         try {
-            Log.d(TAG, "🔋 开始更新电量: " + newLevel + "%");
+            Log.d(TAG, "🔋 Updating battery: " + newLevel + "%");
             LightningShapeView liquidView = findViewById(R.id.full_screen_liquid);
             TextView batteryText = findViewById(R.id.battery_text);
             
             if (liquidView != null && batteryText != null) {
-                // 平滑更新液体填充
+                // Smoothly update the liquid fill
                 liquidView.setFillLevel(newLevel / 100f);
-                // 更新数字
+                // Update the number
                 batteryText.setText(newLevel + "%");
-                Log.d(TAG, "🔋 电量已更新: " + newLevel + "%");
+                Log.d(TAG, "🔋 Battery updated: " + newLevel + "%");
             } else {
-                Log.w(TAG, "⚠️ 视图未找到，无法更新电量 - liquidView=" + (liquidView != null) + ", batteryText=" + (batteryText != null));
+                Log.w(TAG, "⚠️ Views not found; cannot update battery - liquidView=" + (liquidView != null) + ", batteryText=" + (batteryText != null));
             }
         } catch (Exception e) {
-            Log.w(TAG, "更新电量失败: " + e.getMessage());
+            Log.w(TAG, "Failed to update the battery: " + e.getMessage());
         }
     }
     
     /**
-     * V3.5: 应用安全区域到电量数字（确保数字显示在安全区域中央）
+     * V3.5: apply the safe area to the battery number (keeps it centered in the safe area).
      */
     private void applySafeAreaToText(TextView textView) {
         try {
-            // 从缓存获取背屏信息
+            // Get the rear info from the cache
             RearDisplayHelper.RearDisplayInfo info = DisplayInfoCache.getInstance().getCachedInfo();
             
             if (info == null) {
-                Log.w(TAG, "⚠️ 背屏信息缓存为空");
+                Log.w(TAG, "⚠️ Rear info cache is empty");
                 return;
             }
             
             if (!info.hasCutout()) {
-                Log.d(TAG, "ℹ️ 背屏无Cutout，数字自动居中");
+                Log.d(TAG, "ℹ️ No rear cutout; number is centered automatically");
                 return;
             }
             
-            // 设置margin让数字居中在安全区域
+            // Set margins to center the number in the safe area
             if (textView.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams) {
                 android.widget.FrameLayout.LayoutParams params = 
                     (android.widget.FrameLayout.LayoutParams) textView.getLayoutParams();
@@ -673,11 +695,11 @@ public class RearScreenChargingActivity extends Activity {
                 params.bottomMargin = info.cutout.bottom;
                 textView.setLayoutParams(params);
                 
-                Log.d(TAG, String.format("✅ 电量数字已应用安全区域: left=%d, top=%d, right=%d, bottom=%d",
+                Log.d(TAG, String.format("✅ Battery number safe-area applied: left=%d, top=%d, right=%d, bottom=%d",
                     info.cutout.left, info.cutout.top, info.cutout.right, info.cutout.bottom));
             }
         } catch (Exception e) {
-            Log.e(TAG, "❌ 应用安全区域失败", e);
+            Log.e(TAG, "❌ Failed to apply the safe area", e);
         }
     }
 }

@@ -2,7 +2,7 @@
  * Author: AntiOblivionis
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
- * Bilibili: 罗德岛T0驭械术师澄闪
+ * Bilibili: 罗德岛T0驭械术师澄闪 (Luodao T0 Yu Xie Shu Shi Cheng Shan)
  *
  * Co-developed with AI assistants:
  * - Cursor
@@ -19,20 +19,20 @@ import android.content.Intent;
 import android.util.Log;
 
 /**
- * 监听小米背屏状态广播
- * 当背屏点亮/熄灭时，自动恢复常亮Activity，防止被系统Launcher覆盖
+ * Listens for Xiaomi rear-screen state broadcasts.
+ * When the rear screen turns on/off, automatically restores the always-on Activity so the system Launcher doesn't cover it.
  */
 public class RearScreenBroadcastReceiver extends BroadcastReceiver {
     private static final String TAG = "RearScreenReceiver";
 
-    // 保存最后投射的应用信息
+    // Last cast app info
     private static String lastMovedPackage = null;
     private static int lastTaskId = -1;
     private static boolean rearScreenActive = false;
 
     /**
-     * 保存最后投射的应用信息
-     * 由 TaskService 调用
+     * Save the last cast app info.
+     * Called by TaskService.
      */
     public static void saveLastTask(String packageName, int taskId) {
         lastMovedPackage = packageName;
@@ -41,7 +41,7 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
     }
 
     /**
-     * 清除保存的任务信息
+     * Clear the saved task info.
      */
     public static void clearLastTask() {
         lastMovedPackage = null;
@@ -50,7 +50,7 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
     }
 
     /**
-     * 检查是否有活跃的背屏任务
+     * Whether there are active rear-screen tasks.
      */
     public static boolean hasActiveTask() {
         return rearScreenActive && lastMovedPackage != null;
@@ -63,49 +63,49 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
         if (hasActiveTask()) {
         }
         if ("miui.intent.action.SUB_SCREEN_ON".equals(action)) {
-            // 背屏点亮时的处理
+            // Rear screen turned on
             handleScreenOn(context);
         } else if ("miui.intent.action.SUB_SCREEN_OFF".equals(action)) {
-            // 背屏熄灭时的处理
+            // Rear screen turned off
             handleScreenOff(context);
         } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
-            // 系统屏幕关闭（可能是双击息屏）
+            // System screen off (could be double-tap to sleep)
             handleSystemScreenOff(context);
         } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
-            // 系统屏幕打开
+            // System screen on
             handleSystemScreenOn(context);
         }
     }
 
     /**
-     * 处理背屏点亮事件
-     * 尝试恢复之前的常亮Activity和投射的应用
+     * Handle the rear screen turning on.
+     * Tries to restore the previous always-on Activity and cast app.
      */
     private void handleScreenOn(Context context) {
         if (hasActiveTask()) {
-            // 移除Activity机制 - 完全依靠Service
-            // Activity的透明窗口会干扰锁屏时的触摸事件，导致滑动卡住
-            // 不需要发送恢复广播，Service会持续禁用Launcher
+            // Activity mechanism removed - rely entirely on the Service
+            // The Activity transparent window interferes with touch events while locked, making swipes stick
+            // No restore broadcast needed; the Service keeps the Launcher disabled
         } else {
         }
     }
 
     /**
-     * 处理背屏熄灭事件
+     * Handle the rear screen turning off.
      */
     private void handleScreenOff(Context context) {
-        // 背屏熄灭时，保持任务信息，以便下次点亮时恢复
+        // When the rear screen turns off, keep the task info so it can be restored on next wake
         if (hasActiveTask()) {
         } else {
         }
     }
 
     /**
-     * 处理系统屏幕关闭事件（双击息屏等）
+     * Handle system screen off (double-tap to sleep, etc).
      */
     private void handleSystemScreenOff(Context context) {
         if (hasActiveTask()) {
-            // 确保Service仍在运行
+            // Ensure the Service is still running
             if (!RearScreenKeeperService.isRunning()) {
                 Intent serviceIntent = new Intent(context, RearScreenKeeperService.class);
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -119,11 +119,11 @@ public class RearScreenBroadcastReceiver extends BroadcastReceiver {
     }
 
     /**
-     * 处理系统屏幕打开事件
+     * Handle system screen on.
      */
     private void handleSystemScreenOn(Context context) {
         if (hasActiveTask()) {
-            // 确保Service仍在运行
+            // Ensure the Service is still running
             if (!RearScreenKeeperService.isRunning()) {
                 Intent serviceIntent = new Intent(context, RearScreenKeeperService.class);
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {

@@ -2,9 +2,9 @@
  * Author: AntiOblivionis
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
- * Bilibili: 罗德岛T0驭械术师澄闪
+ * Bilibili: 罗德岛T0驭械术师澄闪 (Luodao T0 Yu Xie Shu Shi Cheng Shan)
  * 
- * Chief Tester: 汐木泽
+ * Chief Tester: 汐木泽 (Xi Mu Ze)
  * 
  * Co-developed with AI assistants:
  * - Cursor
@@ -40,7 +40,7 @@ public class MainActivity extends FlutterActivity {
     private static final String TAG = "MainActivity";
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 1001;
     
-    // 静态实例，供其他类访问
+    // Static instance, accessible from other classes
     private static MainActivity currentInstance;
     
     public static MainActivity getCurrentInstance() {
@@ -56,7 +56,7 @@ public class MainActivity extends FlutterActivity {
             .debuggable(false)
             .version(1);
     
-    // Shizuku监听器（关键！）
+    // Shizuku listener (critical!)
     private final Shizuku.OnBinderReceivedListener binderReceivedListener = 
         () -> {
             bindTaskService();
@@ -66,12 +66,12 @@ public class MainActivity extends FlutterActivity {
         () -> {
             taskService = null;
             
-            // 启动重连任务
+            // Start the reconnect task
             scheduleReconnectTaskService();
         };
     
     /**
-     * TaskService重连任务
+     * TaskService reconnect task.
      */
     private final Runnable reconnectTaskServiceRunnable = new Runnable() {
         @Override
@@ -79,7 +79,7 @@ public class MainActivity extends FlutterActivity {
             if (taskService == null) {
                 bindTaskService();
                 
-                // 如果重连失败，2秒后再次尝试
+                // If still disconnected, try again in 2s
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this, 2000);
             } else {
             }
@@ -87,7 +87,7 @@ public class MainActivity extends FlutterActivity {
     };
 
     /**
-     * 安排TaskService重连
+     * Schedule a TaskService reconnect.
      */
     private void scheduleReconnectTaskService() {
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(reconnectTaskServiceRunnable, 2000);
@@ -99,7 +99,7 @@ public class MainActivity extends FlutterActivity {
             if (granted) {
                 bindTaskService();
             }
-            // 通知Flutter刷新状态
+            // Notify Flutter to refresh state
             if (methodChannel != null) {
                 runOnUiThread(() -> {
                     methodChannel.invokeMethod("onShizukuPermissionChanged", granted);
@@ -144,18 +144,18 @@ public class MainActivity extends FlutterActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // 保存实例
+        // Save the instance
         currentInstance = this;
         
-        // 添加Shizuku监听器（关键！使用Sticky版本）
+        // Add Shizuku listeners (critical! sticky version)
         Shizuku.addBinderReceivedListenerSticky(binderReceivedListener);
         Shizuku.addBinderDeadListener(binderDeadListener);
         Shizuku.addRequestPermissionResultListener(requestPermissionResultListener);
         
-        // 自动检查并请求Shizuku权限
+        // Auto-check and request Shizuku permission
         checkAndRequestShizukuPermission();
         
-        // 处理通知Intent
+        // Handle the incoming notification intent
         handleIncomingIntent(getIntent());
     }
     
@@ -166,14 +166,14 @@ public class MainActivity extends FlutterActivity {
     }
     
     /**
-     * 处理来自Service的通知Intent
+     * Handle a notification Intent from the Service.
      */
     private void handleIncomingIntent(Intent intent) {
         if (intent == null) return;
         
         String action = intent.getAction();
         
-        // 处理通知Intent
+        // Handle the incoming notification intent
         if ("SHOW_NOTIFICATION_ON_REAR_SCREEN".equals(action)) {
             String packageName = intent.getStringExtra("packageName");
             String title = intent.getStringExtra("title");
@@ -186,7 +186,7 @@ public class MainActivity extends FlutterActivity {
     }
     
     /**
-     * 在背屏启动通知显示Activity
+     * Start the notification Activity on the rear screen.
      */
     private void startNotificationOnRearScreen(String packageName, String title, String text, long when) {
         if (taskService == null) {
@@ -196,14 +196,14 @@ public class MainActivity extends FlutterActivity {
         
         new Thread(() -> {
             try {
-                // 步骤1: 禁用官方Launcher
+                // Step 1: disable the official Launcher
                 taskService.disableSubScreenLauncher();
                 
-                // 步骤2: 唤醒背屏
+                // Step 2: wake the rear screen
                 taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
                 Thread.sleep(50);
                 
-                // 步骤3: 在主屏启动Activity
+                // Step 3: start the Activity on the main display
                 String componentName = getPackageName() + "/" + RearScreenNotificationActivity.class.getName();
                 String mainCmd = String.format(
                     "am start -n %s --es packageName \"%s\" --es title \"%s\" --es text \"%s\" --el when %d",
@@ -214,7 +214,7 @@ public class MainActivity extends FlutterActivity {
                 );
                 taskService.executeShellCommand(mainCmd);
                 
-                // 步骤4: 轮询获取taskId
+                // Step 4: poll for the taskId
                 String notifTaskId = null;
                 int attempts = 0;
                 int maxAttempts = 20;
@@ -235,16 +235,16 @@ public class MainActivity extends FlutterActivity {
                 }
                 
                 if (notifTaskId != null) {
-                    // 步骤5: 移动到背屏
+                    // Step 5: move to the rear screen
                     String moveCmd = "am display move-stack " + notifTaskId + " 1";
                     taskService.executeShellCommand(moveCmd);
                     Thread.sleep(40);
                     
-                    // 步骤6: 检查是否锁屏，决定是否关闭主屏
+                    // Step 6: check lock state, decide whether to turn off the main screen
                     android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
                     if (km != null && km.isKeyguardLocked()) {
-                        // 主屏休眠功能已移除
-                        Log.d(TAG, "🔒 锁屏状态，主屏已关闭");
+                        // Main-screen sleep removed
+                        Log.d(TAG, "🔒 Locked; main screen off");
                     }
                     
                     Log.d(TAG, "✅ Notification animation started on rear screen");
@@ -259,7 +259,7 @@ public class MainActivity extends FlutterActivity {
     }
     
     /**
-     * 执行Shell命令（供RearScreenChargingActivity调用）
+     * Execute a shell command (for RearScreenChargingActivity).
      */
     public void executeShellCommand(String cmd) {
         if (taskService != null) {
@@ -290,7 +290,7 @@ public class MainActivity extends FlutterActivity {
     protected void onDestroy() {
         super.onDestroy();
         
-        // 清除静态实例
+        // Clear the static instance
         currentInstance = null;
         
         Shizuku.removeBinderReceivedListener(binderReceivedListener);
@@ -359,7 +359,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "requestNotificationPermission": {
-                        // Android 13+ 需要请求通知权限
+                        // Android 13+ requires requesting the notification permission
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
                                 != PackageManager.PERMISSION_GRANTED) {
@@ -371,7 +371,7 @@ public class MainActivity extends FlutterActivity {
                                 result.success(null);
                             }
                         } else {
-                            // Android 12及以下不需要请求通知权限
+                            // Android 12 and below do not require the notification permission
                             result.success(null);
                         }
                         break;
@@ -454,7 +454,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "openTutorial": {
-                        // 打开腾讯文档使用教程
+                        // Open the Tencent Docs tutorial
                         try {
                             Intent intent = new Intent(Intent.ACTION_VIEW);
                             intent.setData(android.net.Uri.parse("https://docs.qq.com/doc/DVWxpT3hQdHNPR3Zy?dver="));
@@ -469,7 +469,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "openDonationPage": {
-                        // 打开打赏页面
+                        // Open the donation page
                         try {
                             Intent intent = new Intent(Intent.ACTION_VIEW);
                             intent.setData(android.net.Uri.parse("https://tgwgroup.ltd/2025/10/19/%e5%85%b3%e4%ba%8e%e6%89%93%e8%b5%8f/"));
@@ -484,7 +484,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "openQQGroup": {
-                        // 打开MRSS交流群页面
+                        // Open the MRSS community group page
                         try {
                             Intent intent = new Intent(Intent.ACTION_VIEW);
                             intent.setData(android.net.Uri.parse("https://tgwgroup.ltd/2025/10/21/%e5%85%b3%e4%ba%8emrss%e4%ba%a4%e6%b5%81%e7%be%a4/"));
@@ -499,10 +499,10 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "ensureTaskServiceConnected": {
-                        // 确保TaskService连接正常
+                        // Ensure TaskService is connected
                         try {
                             if (taskService == null) {
-                                // 尝试重新绑定
+                                // Try to rebind
                                 bindTaskService();
                             }
                             result.success(taskService != null);
@@ -609,33 +609,33 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "returnRearAppAndRestart": {
-                        // 重启前先拉回背屏应用
+                        // Pull rear-screen apps back before restarting
                         if (taskService != null) {
                             try {
-                                // 获取最后移动的任务信息
+                                // Get the last moved task info
                                 String lastTask = SwitchToRearTileService.getLastMovedTask();
                                 
                                 if (lastTask != null && lastTask.contains(":")) {
                                     String[] parts = lastTask.split(":");
                                     int taskId = Integer.parseInt(parts[1]);
                                     
-                                    // 检查任务是否还在背屏
+                                    // Check whether the task is still on the rear screen
                                     boolean onRear = taskService.isTaskOnDisplay(taskId, 1);
                                     
                                     if (onRear) {
-                                        // 拉回主屏
+                                        // Pull it back to the main screen
                                         taskService.moveTaskToDisplay(taskId, 0);
                                         
-                                        // 恢复官方Launcher
+                                        // Restore the official Launcher
                                         taskService.enableSubScreenLauncher();
                                         
                                         result.success(true);
                                     } else {
-                                        // 没有应用在背屏
+                                        // No app on the rear screen
                                         result.success(false);
                                     }
                                 } else {
-                                    // 没有记录
+                                    // No record
                                     result.success(false);
                                 }
                             } catch (Exception e) {
@@ -649,10 +649,10 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setProximitySensorEnabled": {
-                        // V2.2: 设置接近传感器开关
+                        // V2.2: toggle proximity sensor
                         boolean enabled = (boolean) call.argument("enabled");
                         
-                        // 通知RearScreenKeeperService更新状态
+                        // Notify RearScreenKeeperService to update state
                         Intent intent = new Intent(this, RearScreenKeeperService.class);
                         intent.setAction("ACTION_SET_PROXIMITY_ENABLED");
                         intent.putExtra("enabled", enabled);
@@ -663,10 +663,10 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setKeepScreenOnEnabled": {
-                        // V2.5: 设置背屏常亮开关
+                        // V2.5: set rear-screen always-on
                         boolean enabled = (boolean) call.argument("enabled");
                         
-                        // 通知RearScreenKeeperService更新状态
+                        // Notify RearScreenKeeperService to update state
                         Intent intent = new Intent(this, RearScreenKeeperService.class);
                         intent.setAction("ACTION_SET_KEEP_SCREEN_ON_ENABLED");
                         intent.putExtra("enabled", enabled);
@@ -677,7 +677,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setAlwaysWakeUpEnabled": {
-                        // V3.5: 设置未投放应用时常亮开关
+                        // V3.5: set always-wake when no app is cast
                         boolean enabled = (boolean) call.argument("enabled");
                         
                         SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
@@ -697,7 +697,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setWakeOnLockEnabled": {
-                        // 锁屏时唤醒背屏开关
+                        // Toggle wake-on-lock
                         boolean enabled = (boolean) call.argument("enabled");
 
                         SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
@@ -708,13 +708,13 @@ public class MainActivity extends FlutterActivity {
                     }
 
                     case "setChargingAlwaysOnEnabled": {
-                        // V3.5: 设置充电动画常亮开关
+                        // V3.5: set charging always-on
                         boolean enabled = (boolean) call.argument("enabled");
                         
                         SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
                         prefs.edit().putBoolean("charging_always_on_enabled", enabled).apply();
                         
-                        // 通知ChargingService重新加载设置
+                        // Notify ChargingService to reload settings
                         sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_CHARGING_SETTINGS"));
                         
                         Log.d(TAG, "Charging always on set to: " + enabled);
@@ -723,7 +723,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "toggleChargingService": {
-                        // V2.3: 切换充电动画服务
+                        // V2.3: toggle the charging service
                         boolean enabled = (boolean) call.argument("enabled");
                         
                         Intent intent = new Intent(this, ChargingService.class);
@@ -740,7 +740,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "startNotificationService": {
-                        // V2.4: 启动通知服务
+                        // V2.4: start the notification service
                         Intent intent = new Intent(this, NotificationService.class);
                         startService(intent);
                         Log.d(TAG, "NotificationService started");
@@ -749,7 +749,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "toggleNotificationService": {
-                        // V2.4: 切换通知服务
+                        // V2.4: toggle the notification service
                         boolean enabled = (boolean) call.argument("enabled");
                         
                         SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
@@ -758,12 +758,12 @@ public class MainActivity extends FlutterActivity {
                             .apply();
                         
                         if (enabled) {
-                            // 开启时启动服务
+                            // Start the service when enabled
                             Intent intent = new Intent(this, NotificationService.class);
                             startService(intent);
                             Log.d(TAG, "NotificationService started");
                         } else {
-                            // 关闭时停止服务
+                            // Stop the service when disabled
                             Intent intent = new Intent(this, NotificationService.class);
                             stopService(intent);
                             Log.d(TAG, "NotificationService stopped");
@@ -775,14 +775,14 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "checkNotificationListenerPermission": {
-                        // V2.4: 检查通知监听权限
+                        // V2.4: check notification listener permission
                         boolean hasPermission = isNotificationListenerEnabled();
                         result.success(hasPermission);
                         break;
                     }
                     
                     case "openNotificationListenerSettings": {
-                        // V2.4: 打开通知监听设置
+                        // V2.4: open notification listener settings
                         try {
                             Intent intent = new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -796,7 +796,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "checkQueryAllPackagesPermission": {
-                        // V2.4: 检查QUERY_ALL_PACKAGES权限
+                        // V2.4: check QUERY_ALL_PACKAGES permission
                         boolean hasPermission = checkSelfPermission("android.permission.QUERY_ALL_PACKAGES") == PackageManager.PERMISSION_GRANTED;
                         Log.d(TAG, "🔍 QUERY_ALL_PACKAGES permission check: " + hasPermission);
                         result.success(hasPermission);
@@ -804,7 +804,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "requestQueryAllPackagesPermission": {
-                        // V2.4: 请求QUERY_ALL_PACKAGES权限（跳转到应用详情页）
+                        // V2.4: request QUERY_ALL_PACKAGES permission (open app details page)
                         try {
                             Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
                             intent.setData(android.net.Uri.parse("package:" + getPackageName()));
@@ -819,13 +819,13 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "getInstalledApps": {
-                        // V2.4: 获取已安装应用列表（异步）
+                        // V2.4: get installed apps (async)
                         new Thread(() -> {
                             try {
-                                // 先检查权限
+                                // First check the permission
                                 boolean hasPermission = checkSelfPermission("android.permission.QUERY_ALL_PACKAGES") == PackageManager.PERMISSION_GRANTED;
                                 if (!hasPermission) {
-                                    Log.w(TAG, "⚠️ 没有QUERY_ALL_PACKAGES权限，应用列表可能不完整");
+                                    Log.w(TAG, "⚠️ No QUERY_ALL_PACKAGES permission; app list may be incomplete");
                                 }
                                 
                                 java.util.List<java.util.Map<String, Object>> apps = getInstalledApps();
@@ -839,7 +839,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "getSelectedNotificationApps": {
-                        // V2.4: 获取已选择的通知应用
+                        // V2.4: get the selected notification apps
                         try {
                             SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
                             java.util.Set<String> selectedApps = prefs.getStringSet("notification_selected_apps", new java.util.HashSet<>());
@@ -852,7 +852,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setSelectedNotificationApps": {
-                        // V2.4: 保存选择的通知应用
+                        // V2.4: save the selected notification apps
                         try {
                             @SuppressWarnings("unchecked")
                             java.util.List<String> selectedApps = (java.util.List<String>) call.arguments;
@@ -870,7 +870,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setNotificationPrivacyHideTitle": {
-                        // V3.2: 设置隐藏通知标题
+                        // V3.2: set hide notification title
                         try {
                             boolean enabled = (boolean) call.argument("enabled");
                             SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
@@ -878,7 +878,7 @@ public class MainActivity extends FlutterActivity {
                                 .putBoolean("notification_privacy_hide_title", enabled)
                                 .apply();
                             
-                            // 通知NotificationService重新加载设置
+                            // Notify NotificationService to reload settings
                             sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS"));
                             
                             Log.d(TAG, "Privacy hide title set to: " + enabled);
@@ -891,7 +891,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setNotificationPrivacyHideContent": {
-                        // V3.2: 设置隐藏通知内容
+                        // V3.2: set hide notification content
                         try {
                             boolean enabled = (boolean) call.argument("enabled");
                             SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
@@ -899,7 +899,7 @@ public class MainActivity extends FlutterActivity {
                                 .putBoolean("notification_privacy_hide_content", enabled)
                                 .apply();
                             
-                            // 通知NotificationService重新加载设置
+                            // Notify NotificationService to reload settings
                             sendBroadcast(new Intent("com.tgwgroup.MiRearScreenSwitcher.RELOAD_NOTIFICATION_SETTINGS"));
                             
                             Log.d(TAG, "Privacy hide content set to: " + enabled);
@@ -912,7 +912,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setFollowDndMode": {
-                        // V3.0: 设置跟随系统勿扰模式
+                        // V3.0: set follow system DND mode
                         try {
                             boolean enabled = (boolean) call.argument("enabled");
                             SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
@@ -929,7 +929,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setOnlyWhenLocked": {
-                        // V3.0: 设置仅在锁屏时通知
+                        // V3.0: set notify only when locked
                         try {
                             boolean enabled = (boolean) call.argument("enabled");
                             SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
@@ -946,7 +946,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setNotificationDarkMode": {
-                        // V3.1: 设置通知暗夜模式
+                        // V3.1: set notification dark mode
                         try {
                             boolean enabled = (boolean) call.argument("enabled");
                             SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
@@ -963,7 +963,7 @@ public class MainActivity extends FlutterActivity {
                     }
                     
                     case "setNotificationDuration": {
-                        // V3.4: 设置通知自动销毁时间
+                        // V3.4: set notification auto-destroy time
                         try {
                             int duration = (int) call.argument("duration");
                             SharedPreferences prefs = getSharedPreferences("mrss_settings", MODE_PRIVATE);
@@ -997,7 +997,7 @@ public class MainActivity extends FlutterActivity {
     }
     
     /**
-     * V2.4: 检查通知监听服务是否已启用
+     * V2.4: whether the notification listener service is enabled.
      */
     private boolean isNotificationListenerEnabled() {
         String packageName = getPackageName();
@@ -1021,7 +1021,7 @@ public class MainActivity extends FlutterActivity {
     }
     
     /**
-     * V2.4: 获取已安装应用列表
+     * V2.4: get the installed apps list.
      */
     private java.util.List<java.util.Map<String, Object>> getInstalledApps() {
         java.util.List<java.util.Map<String, Object>> apps = new java.util.ArrayList<>();
@@ -1032,22 +1032,22 @@ public class MainActivity extends FlutterActivity {
             
             Log.d(TAG, "Total packages found: " + packages.size());
             
-            // 使用白名单策略（用户应用 + 重要系统应用）
+            // Whitelist: user apps + important system apps
             java.util.Set<String> importantSystemApps = new java.util.HashSet<>();
-            importantSystemApps.add("com.tencent.mm"); // 微信
+            importantSystemApps.add("com.tencent.mm"); // WeChat
             importantSystemApps.add("com.tencent.mobileqq"); // QQ
-            importantSystemApps.add("com.coolapk.market"); // 酷安
-            importantSystemApps.add("com.sina.weibo"); // 微博
-            importantSystemApps.add("com.taobao.taobao"); // 淘宝
-            importantSystemApps.add("com.eg.android.AlipayGphone"); // 支付宝
-            importantSystemApps.add("com.netease.cloudmusic"); // 网易云
-            importantSystemApps.add("com.ss.android.ugc.aweme"); // 抖音
-            importantSystemApps.add("com.bilibili.app.in"); // 哔哩哔哩
-            importantSystemApps.add("com.android.mms"); // 短信
-            importantSystemApps.add("com.android.contacts"); // 联系人
+            importantSystemApps.add("com.coolapk.market"); // CoolApk
+            importantSystemApps.add("com.sina.weibo"); // Weibo
+            importantSystemApps.add("com.taobao.taobao"); // Taobao
+            importantSystemApps.add("com.eg.android.AlipayGphone"); // Alipay
+            importantSystemApps.add("com.netease.cloudmusic"); // NetEase Music
+            importantSystemApps.add("com.ss.android.ugc.aweme"); // Douyin
+            importantSystemApps.add("com.bilibili.app.in"); // Bilibili
+            importantSystemApps.add("com.android.mms"); // SMS
+            importantSystemApps.add("com.android.contacts"); // Contacts
             
             for (android.content.pm.ApplicationInfo appInfo : packages) {
-                // 跳过自己
+                // Skip self
                 if (appInfo.packageName.equals(getPackageName())) {
                     continue;
                 }
@@ -1056,7 +1056,7 @@ public class MainActivity extends FlutterActivity {
                 boolean isUserApp = !isSystemApp;
                 boolean isImportantSystemApp = importantSystemApps.contains(appInfo.packageName);
                 
-                // 只包含用户应用或重要系统应用
+                // Only user apps and important system apps
                 if (!isUserApp && !isImportantSystemApp) {
                     continue;
                 }
@@ -1064,14 +1064,14 @@ public class MainActivity extends FlutterActivity {
                 java.util.Map<String, Object> app = new java.util.HashMap<>();
                 app.put("appName", pm.getApplicationLabel(appInfo).toString());
                 app.put("packageName", appInfo.packageName);
-                app.put("isSystemApp", isSystemApp);  // V3.3: 添加系统应用标志
+                app.put("isSystemApp", isSystemApp);  // V3.3: add system-app flag
                 
-                // 获取应用图标（全分辨率，不压缩不受损）
+                // Get the app icon (full resolution, uncompressed)
                 try {
                     Drawable icon = pm.getApplicationIcon(appInfo);
-                    // 使用原始图标尺寸，不限制大小
+                    // Use the original icon size; do not constrain it
                     int iconSize = Math.max(icon.getIntrinsicWidth(), icon.getIntrinsicHeight());
-                    if (iconSize <= 0) iconSize = 192; // 如果无法获取，使用默认高分辨率
+                    if (iconSize <= 0) iconSize = 192; // fallback high-res size if unavailable
                     
                     android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(
                         iconSize, iconSize, android.graphics.Bitmap.Config.ARGB_8888
@@ -1081,7 +1081,7 @@ public class MainActivity extends FlutterActivity {
                     icon.draw(canvas);
                     
                     java.io.ByteArrayOutputStream stream = new java.io.ByteArrayOutputStream();
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream); // 100%质量，无损压缩
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream); // 100% quality, lossless
                     app.put("icon", stream.toByteArray());
                     
                     bitmap.recycle();
@@ -1092,7 +1092,7 @@ public class MainActivity extends FlutterActivity {
                 apps.add(app);
             }
             
-            // 按应用名排序
+            // Sort by app name
             apps.sort((a, b) -> {
                 String nameA = (String) a.get("appName");
                 String nameB = (String) b.get("appName");

@@ -2,7 +2,7 @@
  * Author: AntiOblivionis
  * QQ: 319641317
  * Github: https://github.com/GoldenglowSusie/
- * Bilibili: 罗德岛T0驭械术师澄闪
+ * Bilibili: 罗德岛T0驭械术师澄闪 (Luodao T0 Yu Xie Shu Shi Cheng Shan)
  *
  * Co-developed with AI assistants:
  * - Cursor
@@ -32,8 +32,8 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 /**
- * 背屏媒体播放显示Activity（POC）
- * 显示专辑封面、曲目标题、歌手名、时钟和播放控制按钮
+ * Rear-screen media playback Activity (POC).
+ * Shows album art, track title, artist, clock, and playback controls.
  */
 public class RearScreenMediaActivity extends Activity {
     private static final String TAG = "RearScreenMediaActivity";
@@ -44,7 +44,7 @@ public class RearScreenMediaActivity extends Activity {
     private final Handler clockHandler = new Handler(Looper.getMainLooper());
     private Runnable clockRunnable;
 
-    // 误触被划走后的"自动找回"：3秒后如果媒体还在播放且没被别的东西正常接管背屏，就自己回到前台
+    // Auto-recover after an accidental swipe-away: if media is still playing after 3s and nothing else took over the rear screen, return to the foreground
     private static final long DISMISS_RECOVERY_DELAY_MS = 3000;
     private final Handler recoveryHandler = new Handler(Looper.getMainLooper());
     private Runnable pendingRecovery;
@@ -53,7 +53,7 @@ public class RearScreenMediaActivity extends Activity {
         @Override
         public void onReceive(Context context, Intent intent) {
             if ("com.tgwgroup.MiRearScreenSwitcher.INTERRUPT_MEDIA_ANIMATION".equals(intent.getAction())) {
-                Log.d(TAG, "🔄 收到打断广播，立即销毁");
+                Log.d(TAG, "🔄 Interrupt broadcast received, destroying now");
                 finish();
             }
         }
@@ -68,7 +68,7 @@ public class RearScreenMediaActivity extends Activity {
             displayId = getDisplay() != null ? getDisplay().getDisplayId() : 0;
         }
         if (displayId == 0) {
-            // 占位符：等待被移动到背屏（正常情况下不会走到这，直接--display 1启动）
+            // Placeholder: waits to be moved to the rear screen (normally launched directly with --display 1)
             return;
         }
 
@@ -100,7 +100,7 @@ public class RearScreenMediaActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // "找回"用的intent只是把已有的task带回前台，没带曲目信息，不能覆盖当前已显示的内容
+        // The "recover" intent only brings the existing task back; it carries no track info, so it must not overwrite what is showing
         if (intent.getBooleanExtra("bringToFront", false)) {
             return;
         }
@@ -109,9 +109,27 @@ public class RearScreenMediaActivity extends Activity {
     }
 
     @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // When move-stack lands on the rear display (configChanges include density/screenSize), this runs; onResume may not
+        recreateIfMovedToRear();
+    }
+
+    /** After the main-display placeholder is move-stacked to the rear, onCreate already returned early (no content); rebuild once on the rear display. */
+    private boolean recreateIfMovedToRear() {
+        if (findViewById(R.id.media_container) != null || isFinishing()
+                || getDisplay() == null || getDisplay().getDisplayId() != 1) {
+            return false;
+        }
+        recreate();
+        return true;
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
-        // 回到前台了（无论是用户自己切回来还是找回逻辑生效），取消排队的找回任务
+        if (recreateIfMovedToRear()) return;
+        // Back in the foreground (user returned or the recovery fired); cancel the queued recover task
         if (pendingRecovery != null) {
             recoveryHandler.removeCallbacks(pendingRecovery);
             pendingRecovery = null;
@@ -121,8 +139,8 @@ public class RearScreenMediaActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
-        // isFinishing()为false说明是被划走/切到后台，不是被打断广播finish()掉的（那种情况isFinishing()已经是true）。
-        // 这种情况下大概率是误触，3秒后自动找回，除非曲目已经真的停了。
+        // isFinishing()==false means swiped away/backgrounded, not finished by an interrupt broadcast (that path already has isFinishing()==true).
+        // This is usually an accidental swipe; auto-recover after 3s, unless the track really stopped.
         if (isFinishing()) {
             return;
         }
@@ -134,7 +152,7 @@ public class RearScreenMediaActivity extends Activity {
         pendingRecovery = null;
         MediaController controller = NotificationService.getActiveMediaController();
         if (controller == null) {
-            return; // 播放已经真的结束了，不用找回
+            return; // playback really ended; no recovery needed
         }
         try {
             ITaskService taskService = NotificationService.getTaskService();
@@ -143,17 +161,17 @@ public class RearScreenMediaActivity extends Activity {
             }
             if (taskService == null) return;
             String componentName = getPackageName() + "/" + RearScreenMediaActivity.class.getName();
-            // 不带--display 1：任务已经在背屏上了，只是需要重新置顶。
-            // 带上--display 1会被HyperOS的ActivityStarterImpl当成"新开一个背屏任务"审核，直接拒绝（t-1，新task）；
-            // 不带这个参数，系统按singleInstance语义直接把现有任务(已经在背屏的那个)带回前台。
+            // No --display 1: the task is already on the rear screen; it only needs to come back to the front.
+            // With --display 1, HyperOS ActivityStarterImpl treats it as a new rear-screen task launch and rejects it (t-1, new task);
+            // Without it, the system uses singleInstance semantics to bring the existing (already-on-rear) task back to the front.
             taskService.executeShellCommand("am start -n " + componentName + " --ez bringToFront true");
         } catch (Throwable t) {
-            Log.w(TAG, "自动找回失败: " + t.getMessage());
+            Log.w(TAG, "Auto-recovery failed: " + t.getMessage());
         }
     }
 
     /**
-     * 显示/刷新曲目信息、封面、播放按钮状态。onCreate首次展示和onNewIntent复用实例时共用。
+     * Show/refresh track info, cover, and play button state. Shared by onCreate first display and onNewIntent instance reuse.
      */
     private void applyMediaState(Intent intent) {
         packageName = intent.getStringExtra("packageName");
@@ -174,7 +192,7 @@ public class RearScreenMediaActivity extends Activity {
         artistView.setText(artist == null ? "" : artist);
         playPauseBtn.setImageResource(isPlaying ? R.drawable.ic_media_pause : R.drawable.ic_media_play);
 
-        // 专辑封面：有封面文件用封面（前景+模糊背景），否则退回应用图标
+        // Album art: use the cover file (foreground + blurred background) when present, else fall back to the app icon
         if (albumArtPath != null && !albumArtPath.isEmpty()) {
             android.graphics.Bitmap bmp = BitmapFactory.decodeFile(albumArtPath);
             if (bmp != null) {
@@ -217,7 +235,7 @@ public class RearScreenMediaActivity extends Activity {
             Drawable icon = pm.getApplicationIcon(packageName);
             albumArtView.setImageDrawable(icon);
         } catch (Exception e) {
-            Log.w(TAG, "加载应用图标失败: " + e.getMessage());
+            Log.w(TAG, "Failed to load app icon: " + e.getMessage());
         }
     }
 
@@ -278,7 +296,7 @@ public class RearScreenMediaActivity extends Activity {
                             );
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "恢复官方Launcher失败", e);
+                        Log.e(TAG, "Failed to restore the official Launcher", e);
                     }
                 }).start();
             }
@@ -292,10 +310,10 @@ public class RearScreenMediaActivity extends Activity {
     }
 
     /**
-     * 在inflate布局之前强制使用背屏DPI（与其它背屏Activity保持一致）
+     * Force the rear-screen DPI before inflating the layout (consistent with other rear-screen Activities).
      */
     /**
-     * 应用安全区域适配（避开摄像头Cutout），与其它背屏Activity保持一致
+     * Apply safe-area padding (clears camera cutout), consistent with other rear-screen Activities.
      */
     private void applySafeAreaPadding() {
         try {
@@ -313,7 +331,7 @@ public class RearScreenMediaActivity extends Activity {
                 contentLayout.setLayoutParams(params);
             }
         } catch (Exception e) {
-            Log.e(TAG, "应用安全区域失败", e);
+            Log.e(TAG, "Failed to apply safe area", e);
         }
     }
 
@@ -354,7 +372,7 @@ public class RearScreenMediaActivity extends Activity {
             config.densityDpi = rearScreenDpi;
             getResources().updateConfiguration(config, metrics);
         } catch (Exception e) {
-            Log.e(TAG, "应用背屏DPI失败", e);
+            Log.e(TAG, "Failed to apply rear-screen DPI", e);
         }
     }
 }

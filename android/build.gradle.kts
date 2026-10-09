@@ -2,7 +2,7 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-        // Shizuku仓库
+        // Shizuku repository
         maven { url = uri("https://jitpack.io") }
     }
 }
