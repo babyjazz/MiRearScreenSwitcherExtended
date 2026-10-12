@@ -89,6 +89,7 @@ public class RearHost {
         if (type == RearStack.Type.CHARGING) chargingSelfFinished = true;
         boolean had = RearStack.contains(type);
         Log.d(TAG, "hide " + type + " had=" + had + " host=" + RearHostActivity.getInstance());
+        if (!had) return; // nothing to remove: re-rendering would replay the top view and reset its timers
         RearStack.remove(type);
         RearHostActivity host = RearHostActivity.getInstance();
         if (host == null) {
