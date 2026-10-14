@@ -211,6 +211,8 @@ public class RearPagerView {
     public void bindCharging(Bundle payload) {
         chargePayload = payload;
         boolean active = payload != null && payload.containsKey("batteryLevel");
+        Breadcrumb.log(context, "RearPagerView", "bindCharging active=" + active
+            + " level=" + (payload == null ? -1 : payload.getInt("batteryLevel", -1)));
         if (active) {
             chargingView.bind(payload);
             ((ViewGroup) pages.get(2)).getChildAt(0).setVisibility(View.VISIBLE);
@@ -226,6 +228,7 @@ public class RearPagerView {
         boolean notiOn = notiActive && notiPayload != null && notiPayload.containsKey("title");
         boolean chargeOn = chargingActive && chargePayload != null && chargePayload.containsKey("batteryLevel");
         boolean mediaOn = mediaActive && musicPayload != null;
+        Breadcrumb.log(context, "RearPagerView", "featureChanged noti=" + notiOn + " charge=" + chargeOn + " media=" + mediaOn);
         if (notiOn) {
             notificationView.bind(notiPayload);
             ((ViewGroup) pages.get(1)).getChildAt(0).setVisibility(View.VISIBLE);

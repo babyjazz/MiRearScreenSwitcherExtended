@@ -124,6 +124,7 @@ public class ChargingService extends Service {
             String action = intent.getAction();
             
             if (Intent.ACTION_POWER_CONNECTED.equals(action)) {
+                Breadcrumb.log(context, "ChargingService", "POWER_CONNECTED rcvd");
                 // Reconnect within FLAP_WINDOW_MS after unplug = PD drop/renegotiation (a bad port does this roughly every 40s), not a real plug-in.
                 // A pending unplug is cancelled so a charging animation already on screen survives the flap; no new animation is started.
                 debounceHandler.removeCallbacks(pendingUnplugRunnable);
@@ -189,6 +190,8 @@ public class ChargingService extends Service {
         @Override
         public void run() {
             Context context = ChargingService.this;
+            Breadcrumb.log(context, "ChargingService", "debounce fired plugged=" + isPluggedIn(context)
+                + " enabled=" + prefs.getBoolean("charging_animation_enabled", true));
             // Recheck after the debounce: must still be charging, otherwise it was just jitter
             if (!isPluggedIn(context)) {
                 Log.d(TAG, "⏸ Not charging when debounce ended; ignoring this plug-in");
@@ -244,6 +247,7 @@ public class ChargingService extends Service {
     public void onCreate() {
         super.onCreate();
         Log.d(TAG, "ChargingService created");
+        Breadcrumb.log(this, "ChargingService", "onCreate running");
         
         // Save the instance
         instance = this;
@@ -322,6 +326,9 @@ public class ChargingService extends Service {
     }
 
     private void showChargingOnRearScreenWithRetry(int level, int retryCount) {
+        Breadcrumb.log(this, "ChargingService", "showCharging level=" + level + " retry=" + retryCount
+            + " taskServiceNull=" + (taskService == null)
+            + " hostOnRear=" + (RearHostActivity.getRearInstance() != null));
         if (taskService == null) {
             if (retryCount < 10 && isPluggedIn(this)) {  // retry up to 10 times (1s total), only while still plugged in
                 Log.w(TAG, "TaskService not available, retry " + (retryCount + 1) + "/10");
