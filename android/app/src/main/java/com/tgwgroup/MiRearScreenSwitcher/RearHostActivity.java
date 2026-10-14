@@ -58,12 +58,34 @@ public class RearHostActivity extends Activity {
             setShowWhenLocked(true);
         }
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            private boolean homeTriggered = false;
+
+            @Override
+            public boolean onDown(MotionEvent e) {
+                homeTriggered = false;
+                return false;
+            }
+
+            @Override
+            public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
+                if (homeTriggered || !onRear || e1 == null || e2 == null) return false;
+                float dy = e2.getY() - e1.getY();
+                float dx = e2.getX() - e1.getX();
+                if (dy < -dp(60) && Math.abs(dy) > Math.abs(dx)) {
+                    homeTriggered = true;
+                    RearHost.goHome(getApplicationContext());
+                    return true;
+                }
+                return false;
+            }
+
             @Override
             public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
                 if (onRear && e1 != null && e2 != null
-                        && e2.getY() - e1.getY() < -dp(40)
-                        && Math.abs(velocityY) > Math.abs(velocityX)
-                        && velocityY < -1000) {
+                        && e2.getY() - e1.getY() < -dp(20)
+                        && Math.abs(velocityY) > Math.abs(velocityX) * 1.2f
+                        && velocityY < -600) {
+                    homeTriggered = true;
                     RearHost.goHome(getApplicationContext());
                     return true;
                 }

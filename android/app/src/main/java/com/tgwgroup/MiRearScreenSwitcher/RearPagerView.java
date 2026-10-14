@@ -91,7 +91,6 @@ public class RearPagerView {
         });
 
         buildDots();
-        applySafeAreaPadding();
     }
 
     private View emptyOverlay(String title, String sub) {
@@ -172,7 +171,7 @@ public class RearPagerView {
 
     public void bindMusic(Bundle payload) {
         musicPayload = payload;
-        boolean active = payload != null && payload.getBoolean("isPlaying", false);
+        boolean active = payload != null;
         if (active) {
             mediaView.bind(payload);
             ((ViewGroup) pages.get(0)).getChildAt(0).setVisibility(View.VISIBLE);
@@ -215,7 +214,7 @@ public class RearPagerView {
     public void onFeatureChanged(boolean notiActive, boolean chargingActive, boolean mediaActive) {
         boolean notiOn = notiActive && notiPayload != null && notiPayload.containsKey("title");
         boolean chargeOn = chargingActive && chargePayload != null && chargePayload.containsKey("batteryLevel");
-        boolean mediaOn = mediaActive && musicPayload != null && musicPayload.getBoolean("isPlaying", false);
+        boolean mediaOn = mediaActive && musicPayload != null;
         if (notiOn) {
             notificationView.bind(notiPayload);
             ((ViewGroup) pages.get(1)).getChildAt(0).setVisibility(View.VISIBLE);
@@ -268,17 +267,6 @@ public class RearPagerView {
 
     /** Restore the persisted page after wake. */
     public int restoreAfterWake(Context ctx) { return state.restoreAfterWake(ctx); }
-
-    private void applySafeAreaPadding() {
-        try {
-            RearDisplayHelper.RearDisplayInfo info = DisplayInfoCache.getInstance().getCachedInfo();
-            if (info == null || !info.hasCutout()) return;
-            int l = info.cutout.left, t = info.cutout.top, r = info.cutout.right, b = info.cutout.bottom;
-            for (View page : pages) page.setPadding(l, t, r, b);
-        } catch (Exception e) {
-            Log.e(TAG, "safe area failed", e);
-        }
-    }
 
     private int dp(float value) {
         return (int) (value * context.getResources().getDisplayMetrics().density + 0.5f);
