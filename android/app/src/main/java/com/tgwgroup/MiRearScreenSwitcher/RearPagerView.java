@@ -3,6 +3,8 @@ package com.tgwgroup.MiRearScreenSwitcher;
 import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -25,6 +27,7 @@ import java.util.List;
  */
 public class RearPagerView {
     private static final String TAG = "RearPagerView";
+    private static final long AUTO_RETURN_DELAY_MS = 10000;
 
     private final Context context;
     private final View root;
@@ -33,6 +36,9 @@ public class RearPagerView {
     private final View[] dotViews = new View[RearPagerState.PAGES];
 
     private final RearPagerState state = new RearPagerState();
+    private final Handler autoReturnHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingAutoReturn;
+    private int lastDesiredPage = -1;
     private int currentPage = RearPagerState.MUSIC;
 
     private final List<View> pages = new ArrayList<>();
@@ -155,7 +161,7 @@ public class RearPagerView {
         for (int i = 0; i < RearPagerState.PAGES; i++) {
             View dot = new View(context);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(7), dp(7));
-            if (i > 0) lp.leftMargin = dp(7);
+            if (i > 0) lp.leftMargin = dp(12);
             dot.setLayoutParams(lp);
             dot.setBackgroundResource(R.drawable.bg_pager_dot);
             dotViews[i] = dot;
@@ -168,10 +174,12 @@ public class RearPagerView {
         for (int i = 0; i < dotViews.length; i++) {
             if (dotViews[i] == null) continue;
             if (i == active) {
-                dotViews[i].getLayoutParams().width = dp(16);
+                dotViews[i].getLayoutParams().width = dp(9);
+                dotViews[i].getLayoutParams().height = dp(9);
                 dotViews[i].setBackgroundResource(R.drawable.bg_pager_dot_active);
             } else {
                 dotViews[i].getLayoutParams().width = dp(7);
+                dotViews[i].getLayoutParams().height = dp(7);
                 dotViews[i].setBackgroundResource(R.drawable.bg_pager_dot);
             }
             dotViews[i].requestLayout();
@@ -256,7 +264,35 @@ public class RearPagerView {
             ((ViewGroup) pages.get(0)).getChildAt(0).setVisibility(View.GONE);
             emptyMusic.setVisibility(View.VISIBLE);
         }
-        setPage(state.decidePage(notiOn, chargeOn, mediaOn), true);
+        int desired = state.decidePage(notiOn, chargeOn, mediaOn);
+        if (desired != lastDesiredPage) {
+            // A feature just became active (or priority changed): jump to it now.
+            lastDesiredPage = desired;
+            cancelAutoReturn();
+            setPage(desired, true);
+        } else if (desired == currentPage) {
+            cancelAutoReturn();
+        } else {
+            // Same feature is still active but the user is looking elsewhere:
+            // don't yank them back on every 2s wake tick; give them time.
+            if (pendingAutoReturn == null) scheduleAutoReturn(desired);
+        }
+    }
+
+    private void cancelAutoReturn() {
+        if (pendingAutoReturn != null) {
+            autoReturnHandler.removeCallbacks(pendingAutoReturn);
+            pendingAutoReturn = null;
+        }
+    }
+
+    private void scheduleAutoReturn(int desired) {
+        cancelAutoReturn();
+        pendingAutoReturn = () -> {
+            pendingAutoReturn = null;
+            setPage(desired, true);
+        };
+        autoReturnHandler.postDelayed(pendingAutoReturn, AUTO_RETURN_DELAY_MS);
     }
 
     public void setPage(int index, boolean animate) {
@@ -271,6 +307,7 @@ public class RearPagerView {
     public int getCurrentPage() { return currentPage; }
 
     public void unbind() {
+        cancelAutoReturn();
         mediaView.unbind();
         notificationView.unbind();
         chargingView.unbind();
