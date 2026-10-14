@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MRSS Rear Pager — Design Prototype</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{
+    --bg:#0b0d12; --card:#171b26; --line:#262c3b;
+    --text:#eef1f7; --dim:#8b93a7; --accent:#4c8dff; --green:#16c784; --red:#ff5a5f; --gold:#f5b64a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:#05060a; color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    min-height:100vh; display:flex; align-items:center; justify-content:center; gap:28px; flex-wrap:wrap; padding:24px;
+  }
+  .stage{display:flex; flex-direction:column; gap:14px; align-items:center;}
+  .phone{
+    width:640px; height:390px; border-radius:22px; overflow:hidden; background:#000;
+    border:1px solid #2a2f3d; position:relative; box-shadow:0 30px 80px rgba(0,0,0,.6);
+  }
+  .pager{position:absolute; inset:0; display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none;}
+  .pager::-webkit-scrollbar{display:none;}
+  .page{
+    flex:0 0 100%; scroll-snap-align:start; position:relative; overflow:hidden;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .page .glow{position:absolute; inset:0;}
+  .page-body{position:relative; width:100%; display:flex; flex-direction:column; align-items:center; gap:12px;}
+  /* page banners */
+  .phead{position:absolute; top:10px; left:0; right:0; display:flex; justify-content:space-between; align-items:center; padding:0 16px; pointer-events:none;}
+  .phead .n{font-size:10px; color:var(--dim); letter-spacing:.08em; text-transform:uppercase;}
+  .phead .c{font-size:10px; color:#3d4558; font-variant-numeric:tabular-nums;}
+  .emoji{font-size:34px; line-height:1;}
+  .state-title{font-size:17px; font-weight:650; margin-top:4px;}
+  .state-sub{font-size:12px; color:var(--dim);}
+  /* music */
+  .page.music .glow{background:radial-gradient(600px 300px at 30% 40%, #23324d 0%, #080b12 70%);}
+  .music-row{display:flex; align-items:center; gap:14px;}
+  .art{width:64px; height:64px; border-radius:12px; background:linear-gradient(135deg,#3d5f9e,#1c2540);}
+  .music-row .t{font-size:17px; font-weight:650;}
+  .music-row .a{font-size:12px; color:var(--dim); margin-top:2px;}
+  .ctrls{display:flex; gap:10px; align-items:center;}
+  .icon-btn{width:42px; height:42px; border-radius:99px; background:#202634; border:1px solid #2d3446; color:var(--text); font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;}
+  .icon-btn:active{background:#2b3448;}
+  .icon-btn.play{width:52px;height:52px; background:var(--accent); border-color:transparent;}
+  /* notification */
+  .page.notif .glow{background:radial-gradient(600px 300px at 50% 30%, #202a3a 0%, #0a0d14 75%);}
+  .noti-card{background:rgba(20,24,33,.88); border:1px solid var(--line); border-radius:16px; padding:16px 20px; width:100%; max-width:360px; display:flex; gap:14px; align-items:flex-start; backdrop-filter:blur(4px);}
+  .noti-icon{width:46px; height:46px; border-radius:11px; background:linear-gradient(135deg,#6a8cff,#3b4f9e); display:flex; align-items:center; justify-content:center; font-size:20px; flex:none;}
+  .noti-card h2{font-size:15px;}
+  .noti-card p{color:var(--dim); font-size:12px; margin-top:3px; line-height:1.4;}
+  .noti-app{font-size:10px; color:var(--dim); margin-top:4px; letter-spacing:.03em;}
+  /* charging */
+  .page.charging .glow{background:radial-gradient(600px 300px at 50% 55%, #123426 0%, #07130e 75%);}
+  .liquid{width:150px; height:150px; border-radius:14px; overflow:hidden; background:#081511; position:relative; border:1px solid #144534;}
+  .liquid .fill{position:absolute; left:0; right:0; bottom:0; background:linear-gradient(180deg,var(--green),#0d5c41); animation:glow 2.2s ease-in-out infinite alternate; transition:height .6s;}
+  @keyframes glow{from{opacity:.72}to{opacity:1}}
+  .liquid .pct{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:700; color:#8cfdbb; text-shadow:0 0 18px var(--green);}
+  /* calling */
+  .page.calling .glow{background:radial-gradient(600px 300px at 50% 35%, #3a2a26 0%, #120b0a 75%);}
+  .call-avatar{width:52px; height:52px; border-radius:99px; background:#2b3146; display:flex; align-items:center; justify-content:center; font-size:22px;}
+  .call-badge{font-size:10px; padding:2px 9px; border-radius:99px; background:#202634; color:var(--dim); border:1px solid var(--line);}
+  .call-badge.ring{background:#6b1f2a; color:#ffd9dc; border-color:#8d2c3a;}
+  .call-row{display:flex; align-items:center; gap:14px;}
+  .call-row .n{font-size:17px; font-weight:650;}
+  .call-row .s{font-size:12px; color:var(--dim); margin-top:1px;}
+  /* timer */
+  .page.timer .glow{background:radial-gradient(600px 300px at 50% 35%, #2c313f 0%, #0c0e15 75%);}
+  .time{font-size:34px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:.02em;}
+  .presets{display:flex; gap:6px;}
+  .preset{font-size:11px; padding:3px 11px; border-radius:99px; background:#202634; border:1px solid var(--line); cursor:pointer; color:var(--dim);}
+  .preset.on{background:var(--accent); color:#fff; border-color:transparent;}
+  /* custom */
+  .page.custom .glow{background:radial-gradient(600px 300px at 50% 40%, #1f2333 0%, #0b0d16 75%);}
+  .custom-zone{width:100%; max-width:360px; height:120px; border:1px dashed #39415a; border-radius:12px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; color:var(--dim);}
+  .custom-zone b{color:var(--text); font-size:14px;}
+  .custom-zone span{font-size:11px;}
+  /* dots */
+  .dots{position:absolute; bottom:9px; left:0; right:0; display:flex; align-items:center; justify-content:center; gap:6px; z-index:4;}
+  .dot{width:6px; height:6px; border-radius:99px; background:#333b52; transition:all .2s;}
+  .dot.on{width:15px; background:var(--accent);}
+  .hint{position:absolute; top:32px; left:0; right:0; text-align:center; font-size:10px; color:rgba(238,241,247,.55); pointer-events:none; letter-spacing:.03em;}
+  /* controls */
+  .controls{width:640px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center;}
+  .chip{background:#161b26; border:1px solid var(--line); color:var(--text); border-radius:99px; padding:7px 13px; font-size:12px; cursor:pointer;}
+  .chip.off{opacity:.45;}
+  .side{max-width:300px; background:#0d1119; border:1px solid var(--line); border-radius:16px; padding:18px; font-size:12.5px; line-height:1.55; color:var(--dim);}
+  .side h3{color:var(--text); font-size:14px; margin-bottom:10px; font-weight:650;}
+  .side b{color:var(--text);}
+  .side li{margin-left:16px; margin-bottom:7px;}
+  .foot{margin-top:6px; font-size:11px; color:#5a6379; text-align:center; width:640px;}
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="phone">
+    <div class="pager" id="pager">
+
+      <!-- 1. Music -->
+      <section class="page music">
+        <div class="glow"></div>
+        <div class="phead"><span class="n">Music</span><span class="c">1 / 6</span></div>
+        <div class="page-body" id="musicBody">
+          <div class="emoji" id="musicEmoji">🎵</div>
+          <div class="state-title" id="musicTitle">No music playing now</div>
+          <div class="state-sub" id="musicSub">Play in any media app</div>
+          <div class="ctrls" id="musicCtrls" style="display:none;">
+            <button class="icon-btn">⏮</button>
+            <button class="icon-btn play" id="playBtn">▶</button>
+            <button class="icon-btn">⏭</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Notification -->
+      <section class="page notif">
+        <div class="glow"></div>
+        <div class="phead"><span class="n">Notification</span><span class="c">2 / 6</span></div>
+        <div class="page-body" id="notiBody">
+          <div class="emoji" id="notiEmoji">🔕</div>
+          <div class="state-title">No notifications</div>
+          <div class="state-sub">You are all caught up</div>
+        </div>
+      </section>
+
+      <!-- 3. Charging -->
+      <section class="page charging">
+        <div class="glow"></div>
+        <div class="phead"><span class="n">Charging</span><span class="c">3 / 6</span></div>
+        <div class="page-body" id="chargeBody">
+          <div class="emoji" id="chargeEmoji">🔋</div>
+          <div class="state-title">Not charging</div>
+          <div class="state-sub">Plug in charger</div>
+        </div>
+      </section>
+
+      <!-- 4. Calling -->
+      <section class="page calling">
+        <div class="glow"></div>
+        <div class="phead"><span class="n">Calling</span><span class="c">4 / 6</span></div>
+        <div class="page-body" id="callBody">
+          <div class="emoji" id="callEmoji">📞</div>
+          <div class="state-title">No active call</div>
+          <div class="state-sub">Idle</div>
+        </div>
+      </section>
+
+      <!-- 5. Timer -->
+      <section class="page timer">
+        <div class="glow"></div>
+        <div class="phead"><span class="n">Timer</span><span class="c">5 / 6</span></div>
+        <div class="page-body">
+          <div class="time" id="time">05:00</div>
+          <div class="presets" id="presets">
+            <div class="preset" data-s="60">1 min</div>
+            <div class="preset on" data-s="300">5 min</div>
+            <div class="preset" data-s="600">10 min</div>
+          </div>
+          <div class="ctrls">
+            <button class="icon-btn" id="timerStart">▶</button>
+            <button class="icon-btn" id="timerReset">↺</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. Custom -->
+      <section class="page custom">
+        <div class="glow"></div>
+        <div class="phead"><span class="n">Custom</span><span class="c">6 / 6</span></div>
+        <div class="page-body">
+          <div class="custom-zone"><b>Your page here</b><span>content TBD — image / shortcuts / note</span></div>
+        </div>
+      </section>
+
+    </div>
+    <div class="dots" id="dots"></div>
+    <div class="hint">swipe left / right between pages</div>
+  </div>
+
+  <div class="controls">
+    <button class="chip" id="simMedia">Simulate music</button>
+    <button class="chip" id="simNoti">Simulate noti</button>
+    <button class="chip" id="simCharge">Simulate charging</button>
+    <button class="chip" id="simCall">Simulate call</button>
+    <button class="chip off" id="clearAll">Clear all</button>
+  </div>
+  <div class="foot">Swipe pages · demo sim buttons push page + state · noti auto-switches, dismiss returns to last page · throwaway design probe, not product code</div>
+</div>
+
+<aside class="side">
+  <h3>Design this round</h3>
+  <ul>
+    <li><b>Fixed pages</b>, always present, swipe left/right. 6 pages: music, noti, charging, calling, timer, custom.</li>
+    <li><b>Empty states per page</b> — no music, no noti, not charging, no call. Page still there, just empty copy.</li>
+    <li><b>Auto-switch by feature</b>: noti arrive → jump noti page. Charger plug → jump charging. After dismiss/unplug → return last user page. One host, no Activity race.</li>
+    <li><b>Same data sources</b>: music = MediaSession (like current MediaView), noti = NotificationService, charge = ChargingService, call = dumpsys telephony.registry (read-only).</li>
+    <li><b>Timer/custom</b> self-contained in MRSS; custom content still TBD.</li>
+  </ul>
+</aside>
+
+<script>
+  const pager=document.getElementById('pager');
+
+  // --- state ---
+  const S={playing:false, noti:null, charging:false, call:null, chargeLevel:82};
+  let lastUserPage=0; // default page (music)
+
+  // --- dots ---
+  const dots=document.getElementById('dots');
+  const pages=[...pager.children];
+  pages.forEach((_,i)=>{const d=document.createElement('div');d.className='dot';dots.appendChild(d);});
+  const dotEls=[...dots.children];
+  let autoScrolling=false;
+  function sync(){
+    const idx=Math.round(pager.scrollLeft/pager.clientWidth);
+    dotEls.forEach((d,i)=>d.classList.toggle('on',i===idx));
+    if(!autoScrolling) lastUserPage=idx;
+  }
+  pager.addEventListener('scroll',sync,{passive:true});
+  function go(idx){
+    autoScrolling=true;
+    pager.scrollTo({left:pager.clientWidth*idx, behavior:'smooth'});
+    lastUserPage=idx;
+    setTimeout(()=>autoScrolling=false, 480);
+  }
+  sync();
+
+  // --- render state ---
+  function renderMusic(){
+    const b=document.getElementById('musicBody');
+    if(S.playing){
+      b.innerHTML='<div class="music-row">'+
+        '<div class="art"></div>'+
+        '<div><div class="t">Sunflower</div><div class="a">Post Malone, Swae Lee</div></div>'+
+        '<div class="ctrls"><button class="icon-btn">⏮</button><button class="icon-btn play" id="playBtn">⏸</button><button class="icon-btn">⏭</button></div>'+
+      '</div>';
+      document.getElementById('playBtn').onclick=()=>{S.playing=false;renderMusic();};
+    } else {
+      b.innerHTML='<div class="emoji">🎵</div><div class="state-title">No music playing now</div>'+
+        '<div class="state-sub">Play in any media app</div>'+
+        '<div class="ctrls"><button class="icon-btn play" id="playBtn">▶</button></div>';
+      document.getElementById('playBtn').onclick=()=>{S.playing=true;renderMusic();};
+    }
+  }
+
+  function renderNoti(){
+    const b=document.getElementById('notiBody');
+    if(S.noti){
+      b.innerHTML='<div class="noti-card">'+
+        '<div class="noti-icon">💬</div>'+
+        '<div><h2>'+S.noti.title+'</h2><p>'+S.noti.text+'</p>'+
+        '<div class="noti-app">'+S.noti.app+' · tap to open</div></div>'+
+      '</div>'+
+      '<button class="chip" id="dismissNoti">Dismiss</button>';
+      document.getElementById('dismissNoti').onclick=()=>{S.noti=null;renderNoti();go(lastUserPage);};
+    } else {
+      b.innerHTML='<div class="emoji">🔕</div><div class="state-title">No notifications</div><div class="state-sub">You are all caught up</div>';
+    }
+  }
+
+  function renderCharging(){
+    const b=document.getElementById('chargeBody');
+    if(S.charging){
+      b.innerHTML='<div class="liquid"><div class="fill" style="height:'+S.chargeLevel+'%"></div><div class="pct">'+S.chargeLevel+'%</div></div>'+
+        '<div class="state-sub">Charging · always-on page</div>'+
+        '<button class="chip" id="stopCharge">Unplug</button>';
+      document.getElementById('stopCharge').onclick=()=>{S.charging=false;renderCharging();go(lastUserPage);};
+    } else {
+      b.innerHTML='<div class="emoji">🔋</div><div class="state-title">Not charging</div><div class="state-sub">Plug in charger</div>';
+    }
+  }
+
+  function renderCall(){
+    const b=document.getElementById('callBody');
+    if(S.call){
+      b.innerHTML='<div class="call-badge ring">● incoming</div>'+
+        '<div class="call-row"><div class="call-avatar">📞</div>'+
+        '<div><div class="n">Mom</div><div class="s">Incoming call · '+S.call+' sec</div></div>'+
+        '<div class="ctrls"><button class="icon-btn" id="endCall">✕</button></div></div>';
+      document.getElementById('endCall').onclick=()=>{S.call=null;renderCall();};
+    } else {
+      b.innerHTML='<div class="emoji">📞</div><div class="state-title">No active call</div><div class="state-sub">Idle</div>';
+    }
+  }
+
+  renderMusic(); renderNoti(); renderCharging(); renderCall();
+
+  // --- demo buttons ---
+  document.getElementById('simMedia').onclick=()=>{S.playing=!S.playing;renderMusic();if(S.playing)go(0);};
+  document.getElementById('simNoti').onclick=()=>{
+    S.noti={title:'New notification', text:'This is a fresh one', app:'WhatsApp'};
+    renderNoti(); go(1);
+  };
+  document.getElementById('simCharge').onclick=()=>{S.charging=true;renderCharging();go(2);};
+  document.getElementById('simCall').onclick=()=>{S.call=15;renderCall();go(3);};
+
+  // --- timer ---
+  const time=document.getElementById('time');
+  const presets=document.getElementById('presets');
+  let left=300, running=false, iv=null;
+  function fmt(){const m=Math.floor(left/60),s=left%60;time.textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');}
+  function stop(){running=false;clearInterval(iv);iv=null;document.getElementById('timerStart').textContent='▶';}
+  presets.querySelectorAll('.preset').forEach(p=>{
+    p.onclick=()=>{if(running)stop();presets.querySelectorAll('.preset').forEach(x=>x.classList.remove('on'));p.classList.add('on');left=+p.dataset.s;fmt();};
+  });
+  document.getElementById('timerStart').onclick=()=>{
+    if(running){stop();return;}
+    running=true;document.getElementById('timerStart').textContent='⏸';
+    iv=setInterval(()=>{if(left<=0){stop();fmt();return;}left--;fmt();},1000);
+  };
+  document.getElementById('timerReset').onclick=()=>{stop();presets.querySelector('.on')&&(left=+presets.querySelector('.on').dataset.s);fmt();};
+  fmt();
+
+  // --- hash demo: `#page=N`, `&music=1`, `&noti=1`, `&charge=1`, `&call=1` ---
+  (function(){
+    const h=new URLSearchParams(location.hash.slice(1));
+    if(h.get('music')) S.playing=true;
+    if(h.get('noti')) S.noti={title:'New notification',text:'This is a fresh one',app:'WhatsApp'};
+    if(h.get('charge')) S.charging=true;
+    if(h.get('call')) S.call=15;
+    renderMusic();renderNoti();renderCharging();renderCall();
+    const pg=+(h.get('page')||0);
+    if(pg>0) pager.scrollTo({left:pager.clientWidth*pg,behavior:'auto'});
+  })();
+
+  document.getElementById('clearAll').onclick=()=>{
+    S.playing=false;S.noti=null;S.charging=false;S.call=null;
+    renderMusic();renderNoti();renderCharging();renderCall();
+  };
+</script>
+</body>
+</html>
