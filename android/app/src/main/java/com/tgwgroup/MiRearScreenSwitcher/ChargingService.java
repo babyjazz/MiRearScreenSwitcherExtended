@@ -328,8 +328,9 @@ public class ChargingService extends Service {
                 debounceHandler.postDelayed(() -> showChargingOnRearScreenWithRetry(level, retryCount + 1), 100);
                 return;
             }
-            Log.e(TAG, "TaskService not available, aborting");
-            return;
+            // Fall back to whatever TaskService RearHost can find (e.g. NotificationService's).
+            // The pager host only needs a payload to re-render; cold launch also works via RearHost.taskService().
+            Log.w(TAG, "Charging TaskService unavailable after retries; falling back to RearHost.taskService()");
         }
         if (!prefs.getBoolean("charging_animation_enabled", true)) return;
 

@@ -117,6 +117,17 @@ public class RearPagerView {
         s.setPadding(0, dp(6), 0, 0);
         ll.addView(s);
 
+        // Empty state is centered on the raw screen, but filled views already pad for the
+        // left camera cutout. Shift the empty overlay right by the same cutout so both align.
+        try {
+            RearDisplayHelper.RearDisplayInfo info = DisplayInfoCache.getInstance().getCachedInfo();
+            if (info != null && info.hasCutout()) {
+                ll.setPadding(info.cutout.left, info.cutout.top, info.cutout.right, info.cutout.bottom);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "empty overlay safe area failed", e);
+        }
+
         return ll;
     }
 
