@@ -47,6 +47,13 @@ public class RearHostActivity extends Activity {
 
     public RearPagerView getPagerView() { return pagerView; }
 
+    public static void setDotsVisible(boolean visible) {
+        RearHostActivity host = getInstance();
+        if (host != null && host.pagerView != null) {
+            host.pagerView.setDotsVisible(visible);
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);

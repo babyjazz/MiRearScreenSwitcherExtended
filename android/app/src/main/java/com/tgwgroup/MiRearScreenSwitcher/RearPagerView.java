@@ -97,6 +97,7 @@ public class RearPagerView {
         });
 
         buildDots();
+        applyDotsVisibility();
     }
 
     private View emptyOverlay(String title, String sub) {
@@ -305,6 +306,16 @@ public class RearPagerView {
     }
 
     public int getCurrentPage() { return currentPage; }
+
+    public void setDotsVisible(boolean visible) {
+        dots.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private void applyDotsVisibility() {
+        boolean visible = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            .getBoolean("flutter.pager_dots_visible", false);
+        setDotsVisible(visible);
+    }
 
     public void unbind() {
         cancelAutoReturn();

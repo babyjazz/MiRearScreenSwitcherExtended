@@ -114,6 +114,9 @@ class _HomePageState extends State<HomePage> {
   // V2.4: notification features
   bool _notificationEnabled = false; // off by default (needs permission)
 
+  // Rear pager dots
+  bool _pagerDotsVisible = false; // off by default
+
   @override
   void initState() {
     super.initState();
@@ -484,6 +487,7 @@ class _HomePageState extends State<HomePage> {
         _notificationEnabled =
             prefs.getBool('notification_service_enabled') ??
             false; // V2.4: load the rear notification toggle
+        _pagerDotsVisible = prefs.getBool('pager_dots_visible') ?? false;
       });
 
       // Start the charging service (if enabled)
@@ -646,6 +650,27 @@ class _HomePageState extends State<HomePage> {
       await platform.invokeMethod('toggleChargingService', {'enabled': true});
     } catch (e) {
       print('Failed to start the charging service: $e');
+    }
+  }
+
+  Future<void> _togglePagerDots(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('pager_dots_visible', enabled);
+
+      await platform.invokeMethod('setPagerDotsVisible', {
+        'visible': enabled,
+      });
+
+      setState(() {
+        _pagerDotsVisible = enabled;
+      });
+      print('Pager dots ${enabled ? "visible" : "invisible"}');
+    } catch (e) {
+      print('Failed to toggle pager dots: $e');
+      setState(() {
+        _pagerDotsVisible = !enabled;
+      });
     }
   }
 
@@ -1418,6 +1443,29 @@ class _HomePageState extends State<HomePage> {
                                 _GradientToggle(
                                   value: _chargingAlwaysOnEnabled,
                                   onChanged: _toggleChargingAlwaysOn,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            const Divider(color: Colors.black26, height: 1),
+                            const SizedBox(height: 12),
+                            // Rear pager dots toggle
+                            Row(
+                              children: [
+                                Text(
+                                  AppLocalizations.of(
+                                    context,
+                                  ).translate('pager_dots_title'),
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                const Spacer(),
+                                _GradientToggle(
+                                  value: _pagerDotsVisible,
+                                  onChanged: _togglePagerDots,
                                 ),
                               ],
                             ),
