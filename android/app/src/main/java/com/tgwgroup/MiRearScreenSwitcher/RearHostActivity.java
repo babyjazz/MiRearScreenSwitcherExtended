@@ -68,6 +68,10 @@ public class RearHostActivity extends Activity {
         }
         RearHost.cancelMediaRecovery();
         initIfOnRear(); // moved from the main placeholder to the rear
+        if (pagerView != null) {
+            pagerView.setPage(pagerView.restoreAfterWake(getApplicationContext()), false);
+            onFeatureChanged();
+        }
     }
 
     @Override
@@ -97,6 +101,7 @@ public class RearHostActivity extends Activity {
         lastVisibleMs = System.currentTimeMillis() - shownSince;
         // Not finishing = swiped away / covered / rear slept; the task survives in the background
         if (isFinishing() || !onRear) return;
+        if (pagerView != null) pagerView.saveForSleep(getApplicationContext());
         // With the pager as the idle rear home, a swipe-away that leaves the task alive is fine:
         // bring it back if the rear is still lit and the task was simply covered.
         if (RearHostActivity.isVisible() == false) {

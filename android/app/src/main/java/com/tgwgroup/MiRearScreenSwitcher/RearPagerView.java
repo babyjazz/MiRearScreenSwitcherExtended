@@ -169,6 +169,16 @@ public class RearPagerView {
         chargeAnimator = null;
     }
 
+    /** Persist the page to restore across sleeps. */
+    public int saveForSleep(Context ctx) {
+        return state.saveForSleep(ctx);
+    }
+
+    /** Restore the persisted page after wake. */
+    public int restoreAfterWake(Context ctx) {
+        return state.restoreAfterWake(ctx);
+    }
+
     // ---- page rendering ----
 
     private void renderMusic() {

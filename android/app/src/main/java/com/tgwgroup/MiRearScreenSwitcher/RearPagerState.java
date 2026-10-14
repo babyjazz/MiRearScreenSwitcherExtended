@@ -1,5 +1,7 @@
 package com.tgwgroup.MiRearScreenSwitcher;
 
+import android.content.Context;
+
 /**
  * Pure page-selection logic for the rear pager. No Android imports so it stays
  * unit-testable under plain JUnit.
@@ -52,6 +54,25 @@ public final class RearPagerState {
 
     /** Page to restore after wake. */
     public int restoreAfterWake() {
+        return savedPage;
+    }
+
+    /** Persist the page to restore across sleeps, then return it. */
+    public int saveForSleep(Context ctx) {
+        savedPage = lastUserPage;
+        if (ctx != null) {
+            ctx.getSharedPreferences("mrss_settings", Context.MODE_PRIVATE)
+                .edit().putInt("rear_pager_last_page", savedPage).apply();
+        }
+        return savedPage;
+    }
+
+    /** Restore the persisted page, falling back to the in-memory value. */
+    public int restoreAfterWake(Context ctx) {
+        if (ctx != null) {
+            savedPage = ctx.getSharedPreferences("mrss_settings", Context.MODE_PRIVATE)
+                .getInt("rear_pager_last_page", savedPage);
+        }
         return savedPage;
     }
 }
