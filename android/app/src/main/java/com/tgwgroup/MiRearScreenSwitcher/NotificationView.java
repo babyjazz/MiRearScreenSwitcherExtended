@@ -27,6 +27,7 @@ public class NotificationView implements RearView {
     private final View contentContainer;
     private Runnable dismissRunnable;
     private Runnable phase2Runnable;
+    private String lastKey;
 
     public NotificationView(Context context, ViewGroup parent) {
         this.context = context;
@@ -79,6 +80,15 @@ public class NotificationView implements RearView {
         notificationContent.setPadding(notificationContent.getPaddingLeft(), 0,
             notificationContent.getPaddingRight(), notificationContent.getPaddingBottom());
 
+        // Same notification being re-bound (pager featureChanged ticks) must not
+        // replay the intro animation or restart the dismiss timer.
+        String key = packageName + "\n" + title + "\n" + text;
+        if (key.equals(lastKey)) {
+            container.setOnClickListener(v -> openApp(packageName));
+            return;
+        }
+        lastKey = key;
+
         startAnimation();
 
         container.setOnClickListener(v -> openApp(packageName));
@@ -97,6 +107,7 @@ public class NotificationView implements RearView {
         iconCenter.animate().cancel();
         appNameContainer.animate().cancel();
         contentContainer.animate().cancel();
+        lastKey = null;
     }
 
     private void cancelTimers() {
