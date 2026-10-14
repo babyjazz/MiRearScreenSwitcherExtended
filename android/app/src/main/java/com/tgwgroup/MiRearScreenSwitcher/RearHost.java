@@ -55,17 +55,16 @@ public class RearHost {
                 chargingSelfFinished = true;
             }
         }
-        Log.d(TAG, "show " + type + " top=" + RearStack.top() + " host=" + RearHostActivity.getInstance()
+        Log.d(TAG, "show " + type + " host=" + RearHostActivity.getInstance()
             + " onRear=" + (RearHostActivity.getRearInstance() != null));
-        if (RearStack.top() != type) return; // covered by a higher-priority entry; surfaces when that one ends
-
         if (type == RearStack.Type.CHARGING) chargingSelfFinished = false;
 
         ITaskService ts = taskService();
         RearHostActivity host = RearHostActivity.getRearInstance();
         boolean ok;
         if (host != null) {
-            host.render();
+            // With the pager, showing a feature just updates its page and may auto-switch.
+            host.onFeatureChanged();
             ok = true;
             if (type == RearStack.Type.NOTIFICATION) {
                 exec(ts, WAKE_CMD);
@@ -84,7 +83,7 @@ public class RearHost {
         }
     }
 
-    /** Remove an experience. If it was the last one, the host tears down and restores the rear screen. */
+    /** Remove an experience. The pager host stays alive and shows empty states. */
     public static void hide(Context ctx, RearStack.Type type) {
         if (type == RearStack.Type.CHARGING) chargingSelfFinished = true;
         boolean had = RearStack.contains(type);
@@ -97,7 +96,8 @@ public class RearHost {
             if (had && RearStack.isEmpty()) restoreRear(ctx);
             return;
         }
-        if (RearStack.isEmpty()) host.finishHost(); else host.render();
+        // Keep the host as the idle rear home; feature removal only updates its pages.
+        host.onFeatureChanged();
     }
 
     // Media recovery after the user swipes media away or HyperOS removes it: only if it is still playing and still on top

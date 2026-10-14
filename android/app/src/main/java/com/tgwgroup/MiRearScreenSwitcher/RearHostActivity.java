@@ -10,8 +10,8 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 
 /**
- * The only Activity on the rear screen. Renders whichever experience RearStack says is on top
- * (NotificationView / ChargingView / MediaView) and tears the rear down when the stack empties.
+ * The only Activity on the rear screen. Renders the single rear pager
+ * (Music / Notification / Charging pages) and restores the rear on teardown.
  */
 public class RearHostActivity extends Activity {
     private static final String TAG = "RearHostActivity";
@@ -32,11 +32,10 @@ public class RearHostActivity extends Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private FrameLayout rootFrame;
-    private MediaView mediaView;
-    private NotificationView notificationView;
-    private ChargingView chargingView;
-    private RearView current;
+    private RearPagerView pagerView;
     private boolean finishedByUs = false;
+
+    public RearPagerView getPagerView() { return pagerView; }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,7 +55,7 @@ public class RearHostActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         initIfOnRear();
-        render();
+        onFeatureChanged();
     }
 
     @Override
@@ -78,7 +77,7 @@ public class RearHostActivity extends Activity {
         shownSince = System.currentTimeMillis();
         // Locked and idle, HyperOS sleeps the rear ~1s after wake and removes our task. Waking again once the content is
         // actually visible keeps it lit (a wake right after move-stack is too early).
-        if (onRear && RearStack.top() != RearStack.Type.MEDIA) {
+        if (onRear) {
             handler.postDelayed(() -> {
                 if (!visible) return;
                 try {
@@ -98,18 +97,23 @@ public class RearHostActivity extends Activity {
         lastVisibleMs = System.currentTimeMillis() - shownSince;
         // Not finishing = swiped away / covered / rear slept; the task survives in the background
         if (isFinishing() || !onRear) return;
-        // NOTIFICATION: its own timer ends it. CHARGING: ChargingService's watchdog decides whether to bring it back.
-        if (RearStack.top() == RearStack.Type.MEDIA) {
-            RearHost.scheduleMediaRecovery(this);
+        // With the pager as the idle rear home, a swipe-away that leaves the task alive is fine:
+        // bring it back if the rear is still lit and the task was simply covered.
+        if (RearHostActivity.isVisible() == false) {
+            // No per-feature Activity to recover: the pager host is the whole rear UI.
+            // Media recovery logic below is kept for parity with the old media page.
+            if (RearStack.top() == RearStack.Type.MEDIA) {
+                RearHost.scheduleMediaRecovery(this);
+            }
         }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (current != null) current.unbind();
+        if (pagerView != null) pagerView.unbind();
         handler.removeCallbacksAndMessages(null);
-        Log.d(TAG, "destroy onRear=" + onRear + " finishedByUs=" + finishedByUs + " top=" + RearStack.top());
+        Log.d(TAG, "destroy onRear=" + onRear + " finishedByUs=" + finishedByUs);
         if (this != instance) return;
         boolean wasOnRear = onRear;
         instance = null;
@@ -120,15 +124,9 @@ public class RearHostActivity extends Activity {
             if (RearStack.isEmpty()) RearHost.restoreRear(getApplicationContext());
             return;
         }
-        if (finishedByUs && !RearStack.isEmpty()) {
-            // Something was shown between hide() and the Activity actually dying; bring the host back
-            final android.content.Context app = getApplicationContext();
-            final RearStack.Type top = RearStack.top();
-            new Thread(() -> RearHost.show(app, top, RearStack.get(top))).start();
-            return;
-        }
         if (!finishedByUs) {
-            // Removed by HyperOS or the user: a notification is not worth relaunching
+            // Removed by HyperOS or the user: with the pager as the idle rear home we do not relaunch here;
+            // keep old parity: drop notification and let media recovery decide.
             RearStack.remove(RearStack.Type.NOTIFICATION);
             if (RearStack.top() == RearStack.Type.MEDIA) {
                 RearHost.scheduleMediaRecovery(getApplicationContext());
@@ -143,7 +141,7 @@ public class RearHostActivity extends Activity {
         overridePendingTransition(0, 0);
     }
 
-    /** End the host because the stack is empty. */
+    /** End the host because the rear is no longer wanted. */
     public void finishHost() {
         finishedByUs = true;
         runOnUiThread(this::finish);
@@ -151,48 +149,26 @@ public class RearHostActivity extends Activity {
 
     public void updateBattery(int level) {
         runOnUiThread(() -> {
-            if (chargingView != null && current == chargingView) chargingView.updateBatteryLevel(level);
+            Bundle b = RearStack.get(RearStack.Type.CHARGING);
+            if (b != null) b.putInt("batteryLevel", level);
+            onFeatureChanged();
         });
     }
 
-    /** Show the highest-priority entry. Safe from any thread. */
-    public void render() {
+    /** Re-bind all three pages and auto-switch the pager. Safe from any thread. */
+    public void onFeatureChanged() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            handler.post(this::render);
+            handler.post(this::onFeatureChanged);
             return;
         }
-        if (!onRear || isDestroyed()) return;
-        RearStack.Type top = RearStack.top();
-        if (top == null) return;
-        android.os.Bundle payload = RearStack.get(top);
-        if (payload == null) return;
-
-        RearView next;
-        switch (top) {
-            case NOTIFICATION:
-                if (notificationView == null) notificationView = new NotificationView(this, rootFrame);
-                next = notificationView;
-                break;
-            case CHARGING:
-                if (chargingView == null) chargingView = new ChargingView(this, rootFrame);
-                next = chargingView;
-                break;
-            default:
-                if (mediaView == null) mediaView = new MediaView(this, rootFrame);
-                next = mediaView;
-        }
-        if (next != current) {
-            if (current != null) current.unbind();
-            rootFrame.removeAllViews();
-            rootFrame.addView(next.getView());
-            current = next;
-            if (top == RearStack.Type.NOTIFICATION) {
-                getWindow().setBackgroundDrawableResource(R.drawable.bg_gradient_rear_screen);
-            } else {
-                getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
-            }
-        }
-        next.bind(payload);
+        if (!onRear || isDestroyed() || pagerView == null) return;
+        pagerView.bindMusic(RearStack.get(RearStack.Type.MEDIA));
+        pagerView.bindNotification(RearStack.get(RearStack.Type.NOTIFICATION));
+        pagerView.bindCharging(RearStack.get(RearStack.Type.CHARGING));
+        pagerView.onFeatureChanged(
+            RearStack.contains(RearStack.Type.NOTIFICATION),
+            RearStack.contains(RearStack.Type.CHARGING),
+            RearStack.contains(RearStack.Type.MEDIA));
     }
 
     private int displayId() {
@@ -214,9 +190,11 @@ public class RearHostActivity extends Activity {
         Log.d(TAG, "init on rear");
         forceRearScreenDensityBeforeInflate();
         rootFrame = new FrameLayout(this);
+        pagerView = new RearPagerView(this, rootFrame);
+        rootFrame.addView(pagerView.getView());
         setContentView(rootFrame);
         onRear = true;
-        render();
+        onFeatureChanged();
     }
 
     /** Must run before inflating any layout, or it renders at the main screen's DPI. */
