@@ -5,6 +5,8 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
 import android.util.Log;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -21,6 +23,13 @@ public class RearHostActivity extends Activity {
     private static volatile boolean visible = false;
     private static volatile long shownSince = 0;
     private static volatile long lastVisibleMs = Long.MAX_VALUE;
+    private static volatile boolean homeRequested = false;
+
+    public static boolean consumeHomeRequested() {
+        boolean h = homeRequested;
+        homeRequested = false;
+        return h;
+    }
 
     /** Any live instance, including a main-display placeholder waiting to be moved. */
     public static RearHostActivity getInstance() { return instance; }
@@ -31,6 +40,7 @@ public class RearHostActivity extends Activity {
     public static long getLastVisibleMs() { return lastVisibleMs; }
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private GestureDetector gestureDetector;
     private FrameLayout rootFrame;
     private RearPagerView pagerView;
     private boolean finishedByUs = false;
@@ -47,6 +57,19 @@ public class RearHostActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
         }
+        gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+                if (onRear && e1 != null && e2 != null
+                        && e2.getY() - e1.getY() < -dp(40)
+                        && Math.abs(velocityY) > Math.abs(velocityX)
+                        && velocityY < -1000) {
+                    RearHost.goHome(getApplicationContext());
+                    return true;
+                }
+                return false;
+            }
+        });
         // Launched on the main display it is only a placeholder: wait to be moved, onResume initializes on the rear
         initIfOnRear();
     }
@@ -152,6 +175,12 @@ public class RearHostActivity extends Activity {
         runOnUiThread(this::finish);
     }
 
+    /** Swipe-up home: finish host without letting onDestroy re-show it. */
+    public void finishToHome() {
+        homeRequested = true;
+        finishHost();
+    }
+
     public void updateBattery(int level) {
         runOnUiThread(() -> {
             Bundle b = RearStack.get(RearStack.Type.CHARGING);
@@ -174,6 +203,18 @@ public class RearHostActivity extends Activity {
             RearStack.contains(RearStack.Type.NOTIFICATION),
             RearStack.contains(RearStack.Type.CHARGING),
             RearStack.contains(RearStack.Type.MEDIA));
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (onRear && gestureDetector != null && gestureDetector.onTouchEvent(ev)) {
+            return true;
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private int dp(float value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
 
     private int displayId() {

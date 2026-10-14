@@ -86,6 +86,9 @@ dependencies {
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
 
+    // Rear pager: real page fitting + snap (swipe between pages, no free-scroll)
+    implementation("androidx.viewpager:viewpager:1.0.0")
+
     // Local unit tests for pure Java logic (RearPagerState)
     testImplementation("junit:junit:4.13.2")
 }

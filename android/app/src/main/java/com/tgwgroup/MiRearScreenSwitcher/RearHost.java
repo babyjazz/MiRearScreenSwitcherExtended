@@ -55,6 +55,7 @@ public class RearHost {
                 chargingSelfFinished = true;
             }
         }
+        cancelHomeRecovery();
         Log.d(TAG, "show " + type + " host=" + RearHostActivity.getInstance()
             + " onRear=" + (RearHostActivity.getRearInstance() != null));
         if (type == RearStack.Type.CHARGING) chargingSelfFinished = false;
@@ -98,6 +99,50 @@ public class RearHost {
         }
         // Keep the host as the idle rear home; feature removal only updates its pages.
         host.onFeatureChanged();
+    }
+
+    // Swipe-up home: dismiss MRSS to stock rear home; bring it back on an interval if a feature is still active.
+    private static final long HOME_RECOVERY_DELAY_MS = 3000;
+    private static Runnable pendingHomeRecovery;
+
+    /** Dismiss the pager to the stock rear home. Features still running bring it back on an interval. */
+    public static void goHome(Context ctx) {
+        cancelHomeRecovery();
+        RearHostActivity host = RearHostActivity.getRearInstance();
+        if (host != null) host.finishToHome();
+        restoreRear(ctx);
+        scheduleHomeRecovery(ctx);
+    }
+
+    public static void cancelHomeRecovery() {
+        if (pendingHomeRecovery != null) {
+            recoveryHandler.removeCallbacks(pendingHomeRecovery);
+            pendingHomeRecovery = null;
+        }
+    }
+
+    private static void scheduleHomeRecovery(Context ctx) {
+        cancelHomeRecovery();
+        final Context app = ctx.getApplicationContext();
+        pendingHomeRecovery = () -> homeRecover(app);
+        recoveryHandler.postDelayed(pendingHomeRecovery, HOME_RECOVERY_DELAY_MS);
+    }
+
+    private static void homeRecover(Context ctx) {
+        pendingHomeRecovery = null;
+        if (RearHostActivity.getRearInstance() != null) return;
+        boolean notiActive = RearStack.contains(RearStack.Type.NOTIFICATION);
+        boolean chargingActive = RearStack.contains(RearStack.Type.CHARGING);
+        boolean mediaActive = false;
+        MediaController c = NotificationService.getActiveMediaController();
+        PlaybackState ps = c == null ? null : c.getPlaybackState();
+        mediaActive = ps != null && ps.getState() == PlaybackState.STATE_PLAYING;
+        RearStack.Type top;
+        if (notiActive) top = RearStack.Type.NOTIFICATION;
+        else if (chargingActive) top = RearStack.Type.CHARGING;
+        else if (mediaActive) top = RearStack.Type.MEDIA;
+        else return;
+        show(ctx, top, RearStack.get(top));
     }
 
     // Media recovery after the user swipes media away or HyperOS removes it: only if it is still playing and still on top
