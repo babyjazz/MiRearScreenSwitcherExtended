@@ -27,7 +27,7 @@ import java.util.List;
  */
 public class RearPagerView {
     private static final String TAG = "RearPagerView";
-    private static final long AUTO_RETURN_DELAY_MS = 10000;
+    private static final long AUTO_RETURN_DELAY_MS = 4000;
 
     private final Context context;
     private final View root;
