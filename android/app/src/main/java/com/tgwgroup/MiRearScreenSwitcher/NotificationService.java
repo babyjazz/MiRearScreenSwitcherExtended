@@ -220,6 +220,45 @@ public class NotificationService extends NotificationListenerService {
         }
     };
     
+    // Rear display state listener: when display 1 turns back ON and a feature is active,
+    // bring the pager front automatically (it may have been removed while the display slept).
+    private android.hardware.display.DisplayManager rearDisplayManager;
+    private android.hardware.display.DisplayManager.DisplayListener rearDisplayListener;
+
+    private void registerRearDisplayListener() {
+        try {
+            rearDisplayManager = (android.hardware.display.DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+            if (rearDisplayManager == null) return;
+            rearDisplayListener = new android.hardware.display.DisplayManager.DisplayListener() {
+                @Override public void onDisplayAdded(int displayId) {}
+                @Override public void onDisplayRemoved(int displayId) {}
+                @Override public void onDisplayChanged(int displayId) {
+                    if (displayId != 1) return;
+                    android.view.Display d = rearDisplayManager.getDisplay(1);
+                    if (d != null && d.getState() == android.view.Display.STATE_ON) {
+                        RearHost.bringPagerToFrontIfActive(NotificationService.this);
+                    }
+                }
+            };
+            rearDisplayManager.registerDisplayListener(rearDisplayListener, null);
+            Log.d(TAG, "✓ Rear display listener registered");
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to register rear display listener: " + t.getMessage());
+        }
+    }
+
+    private void unregisterRearDisplayListener() {
+        try {
+            if (rearDisplayManager != null && rearDisplayListener != null) {
+                rearDisplayManager.unregisterDisplayListener(rearDisplayListener);
+                rearDisplayManager = null;
+                rearDisplayListener = null;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to unregister rear display listener: " + t.getMessage());
+        }
+    }
+
     // Broadcast receiver: wake the rear screen when locked (optional, off by default)
     // Since Android 3.1, ACTION_SCREEN_OFF/ON no longer reach manifest-declared receivers;
     // they only arrive via a receiver registered dynamically in a running component, so this lives in the persistent NotificationService.
@@ -248,7 +287,7 @@ public class NotificationService extends NotificationListenerService {
                 Log.d(TAG, "✓ Woke rear screen while locked");
                 // If a feature is active (media/noti/charging), bring the already-alive pager
                 // front instead of leaving the stock rear home visible.
-                RearHost.bringPagerToFrontIfActive();
+                RearHost.bringPagerToFrontIfActive(context);
             } catch (Throwable t) {
                 Log.w(TAG, "Failed to wake rear screen while locked: " + t.getMessage());
             }
@@ -365,6 +404,8 @@ public class NotificationService extends NotificationListenerService {
         } catch (Throwable t) {
             Log.w(TAG, "Failed to register MediaSession listener: " + t.getMessage());
         }
+
+        registerRearDisplayListener();
     }
     
     private void bindTaskService() {
@@ -695,6 +736,8 @@ public class NotificationService extends NotificationListenerService {
         }
 
         // Unregister broadcast receivers
+        unregisterRearDisplayListener();
+
         try {
             unregisterReceiver(settingsReceiver);
             Log.d(TAG, "✓ Broadcast receivers unregistered");

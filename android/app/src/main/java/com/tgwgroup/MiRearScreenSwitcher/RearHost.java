@@ -127,13 +127,31 @@ public class RearHost {
         scheduleHomeRecovery(ctx);
     }
 
-    /** If a feature is active and the pager task is alive, bring it to the front (no cold start). */
-    public static void bringPagerToFrontIfActive() {
+    /**
+     * If a feature is active, make the pager frontmost again.
+     * - Pager alive: bring it front with a bare am start (no cold start).
+     * - Pager gone (e.g. after display sleep removed it): cold-relaunch the top feature.
+     */
+    public static void bringPagerToFrontIfActive(Context ctx) {
         if (RearStack.isEmpty()) return;
-        if (RearHostActivity.getRearInstance() == null) return;
+        ITaskService ts = taskService();
+        if (RearHostActivity.getRearInstance() != null) {
+            if (ts != null) {
+                exec(ts, "am start -n " + HOST_COMPONENT);
+            }
+            return;
+        }
+        RearStack.Type top = RearStack.top();
+        if (top != null) {
+            show(ctx, top, RearStack.get(top));
+        }
+    }
+
+    /** Put the rear display to sleep (dim). Used when the user double-taps on a feature page. */
+    public static void dimRearScreen() {
         ITaskService ts = taskService();
         if (ts != null) {
-            exec(ts, "am start -n " + HOST_COMPONENT);
+            exec(ts, "input -d 1 keyevent KEYCODE_SLEEP");
         }
     }
 

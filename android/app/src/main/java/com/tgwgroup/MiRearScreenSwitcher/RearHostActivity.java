@@ -63,8 +63,40 @@ public class RearHostActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
         }
+        // HyperOS handles rear double-tap itself (go home) unless the window opts out.
+        try {
+            WindowManager.LayoutParams lp = getWindow().getAttributes();
+            // Hidden-API blocklist hides the field from plain reflection; look it up through Class.getDeclaredField reflectively.
+            java.lang.reflect.Method getField = Class.class.getDeclaredMethod("getDeclaredField", String.class);
+            java.lang.reflect.Field f = (java.lang.reflect.Field) getField.invoke(WindowManager.LayoutParams.class, "miuiFlags");
+            f.setAccessible(true);
+            f.setInt(lp, f.getInt(lp) | 256); // MIUI_FLAG_DISABLE_SUBSCREEN_DOUBLE_TAP
+            getWindow().setAttributes(lp);
+            Breadcrumb.log(getApplicationContext(), "Gesture", "miuiFlags set");
+        } catch (Throwable t) {
+            Breadcrumb.log(getApplicationContext(), "Gesture", "miuiFlags failed " + t);
+        }
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             private boolean homeTriggered = false;
+
+            @Override
+            public boolean onDoubleTap(MotionEvent e) {
+                if (!onRear) return false;
+                Breadcrumb.log(getApplicationContext(), "Gesture", "onDoubleTap page="
+                        + (pagerView != null ? pagerView.getCurrentPage() : -1)
+                        + " notiActive=" + RearStack.contains(RearStack.Type.NOTIFICATION));
+                // Double tap is only used by MRSS while the pager is front. Consume it so
+                // HyperOS does not treat it as "go home".
+                if (pagerView != null
+                        && pagerView.getCurrentPage() == RearPagerState.NOTIFICATION
+                        && RearStack.contains(RearStack.Type.NOTIFICATION)) {
+                    RearHost.hide(getApplicationContext(), RearStack.Type.NOTIFICATION);
+                } else {
+                    Breadcrumb.log(getApplicationContext(), "Gesture", "dim rear screen");
+                    RearHost.dimRearScreen();
+                }
+                return true;
+            }
 
             @Override
             public boolean onDown(MotionEvent e) {
@@ -75,6 +107,7 @@ public class RearHostActivity extends Activity {
             @Override
             public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
                 if (homeTriggered || !onRear || e1 == null || e2 == null) return false;
+                Breadcrumb.log(getApplicationContext(), "Gesture", "scroll dy=" + (e2.getY() - e1.getY()) + " dx=" + (e2.getX() - e1.getX()));
                 float dy = e2.getY() - e1.getY();
                 float dx = e2.getX() - e1.getX();
                 if (dy < -dp(60) && Math.abs(dy) > Math.abs(dx)) {
@@ -231,6 +264,7 @@ public class RearHostActivity extends Activity {
         if (onRear && gestureDetector != null && gestureDetector.onTouchEvent(ev)) {
             return true;
         }
+        Breadcrumb.log(getApplicationContext(), "Gesture", "touch ev=" + ev.getAction() + " x=" + ev.getX() + " y=" + ev.getY());
         return super.dispatchTouchEvent(ev);
     }
 
