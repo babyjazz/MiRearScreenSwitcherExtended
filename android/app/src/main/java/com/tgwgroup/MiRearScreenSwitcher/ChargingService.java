@@ -451,17 +451,9 @@ public class ChargingService extends Service {
                         failedRelaunches = 0;
                         relaunchSuspended = false;
                     }
-                    // Send the wakeup command (keeps the rear screen on only while the animation is visible)
-                    try {
-                        if (taskService != null) {
-                            taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
-                            Log.d(TAG, "✓ Wakeup sent");
-                        } else {
-                            Log.w(TAG, "⚠️ TaskService is null, skipping wakeup");
-                        }
-                    } catch (Throwable t) {
-                        Log.w(TAG, "Failed to send wakeup: " + t.getMessage());
-                    }
+                    // Do NOT send periodic KEYCODE_WAKEUP here. The rear screen should be allowed
+                    // to dim/sleep normally after the display timeout; the pager task stays alive
+                    // and is brought back when the user wakes the screen or a feature event occurs.
                 } else if (rearOn && !relaunchSuspended && isPluggedIn(getApplicationContext())
                         && System.currentTimeMillis() - lastChargingAnimationTime > RELAUNCH_GRACE_MS) {
                     // Animation no longer on the rear (swiped home / removed after sleep / not restored after a notification);
