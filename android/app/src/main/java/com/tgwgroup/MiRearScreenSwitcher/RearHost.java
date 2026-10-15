@@ -97,6 +97,15 @@ public class RearHost {
             if (had && RearStack.isEmpty()) restoreRear(ctx);
             return;
         }
+        // Notification timeout with nothing else running: close the pager to stock rear home.
+        // When media or charging is still active the pager stays and just updates its pages.
+        if (type == RearStack.Type.NOTIFICATION && RearStack.isEmpty()) {
+            RearHostActivity rear = RearHostActivity.getRearInstance();
+            if (rear != null) {
+                goHome(ctx);
+                return;
+            }
+        }
         // Keep the host as the idle rear home; feature removal only updates its pages.
         host.onFeatureChanged();
     }
@@ -112,6 +121,14 @@ public class RearHost {
         if (host != null) host.finishToHome();
         restoreRear(ctx);
         scheduleHomeRecovery(ctx);
+    }
+
+    private static boolean isMediaActive() {
+        MediaController c = NotificationService.getActiveMediaController();
+        PlaybackState ps = c == null ? null : c.getPlaybackState();
+        if (ps == null) return false;
+        int state = ps.getState();
+        return state != PlaybackState.STATE_STOPPED && state != PlaybackState.STATE_NONE;
     }
 
     public static void cancelHomeRecovery() {
@@ -133,10 +150,7 @@ public class RearHost {
         if (RearHostActivity.getRearInstance() != null) return;
         boolean notiActive = RearStack.contains(RearStack.Type.NOTIFICATION);
         boolean chargingActive = RearStack.contains(RearStack.Type.CHARGING);
-        boolean mediaActive = false;
-        MediaController c = NotificationService.getActiveMediaController();
-        PlaybackState ps = c == null ? null : c.getPlaybackState();
-        mediaActive = ps != null && ps.getState() == PlaybackState.STATE_PLAYING;
+        boolean mediaActive = isMediaActive();
         RearStack.Type top;
         if (notiActive) top = RearStack.Type.NOTIFICATION;
         else if (chargingActive) top = RearStack.Type.CHARGING;
@@ -171,9 +185,7 @@ public class RearHost {
     private static void recoverMedia(Context ctx) {
         pendingRecovery = null;
         if (RearStack.top() != RearStack.Type.MEDIA || RearHostActivity.isVisible()) return;
-        MediaController c = NotificationService.getActiveMediaController();
-        PlaybackState s = c == null ? null : c.getPlaybackState();
-        if (s == null || s.getState() != PlaybackState.STATE_PLAYING) return;
+        if (!isMediaActive()) return;
         long now = System.currentTimeMillis();
         if (now - recoveryWindowStart > MEDIA_RECOVERY_WINDOW_MS) {
             recoveryWindowStart = now;

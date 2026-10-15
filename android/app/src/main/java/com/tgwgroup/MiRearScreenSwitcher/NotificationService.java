@@ -85,8 +85,6 @@ public class NotificationService extends NotificationListenerService {
     private static final long MEDIA_UPDATE_DEBOUNCE_MS = 250;
     private final android.os.Handler mediaUpdateHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable pendingMediaUpdate;
-    // Paused media stays up this long before it is hidden
-    private static final long MEDIA_PAUSED_GRACE_MS = 5000;
     private Runnable pendingPausedHide;
     private String lastMediaSignature; // last media state pushed to the rear (pkg|title|artist|playing|art)
 
@@ -463,6 +461,14 @@ public class NotificationService extends NotificationListenerService {
             
             Log.d(TAG, "📢 Notification received: " + packageName);
 
+            // Media page is driven only by the control-center / active MediaSession flow.
+            // Any notification from the currently active media app is a playback notification
+            // (lockscreen control or track change); do not let it pop as a regular notification.
+            if (activeMediaPackage != null && activeMediaPackage.equals(packageName)) {
+                Log.d(TAG, "⏭️ Skipping notification from active media app (control center flow): " + packageName);
+                return;
+            }
+
             // Skip media-playback notifications: those go through the dedicated media display flow (MediaSessionManager),
             // not the normal notification popup, otherwise every track/state change pops a chat-style notification and interrupts the media UI.
             // Some apps' playback notifications (e.g. some YouTube Music builds) do not set FLAG_ONGOING_EVENT,
@@ -607,9 +613,9 @@ public class NotificationService extends NotificationListenerService {
             if (isPlaying) {
                 cancelPausedHide();
             } else {
-                // Paused: don't pop media up from nothing; if already showing, hide it after a grace period
-                if (!RearStack.contains(RearStack.Type.MEDIA)) return;
-                schedulePausedHide();
+                // Paused media stays visible, exactly like the control center page.
+                // No auto-hide: the page remains until the session stops/clears.
+                cancelPausedHide();
             }
 
             Bitmap art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
@@ -654,15 +660,6 @@ public class NotificationService extends NotificationListenerService {
         cancelPausedHide();
         lastMediaSignature = null;
         RearHost.hide(this, RearStack.Type.MEDIA);
-    }
-
-    private void schedulePausedHide() {
-        if (pendingPausedHide != null) return; // grace period already running
-        pendingPausedHide = () -> {
-            pendingPausedHide = null;
-            hideMedia();
-        };
-        mediaUpdateHandler.postDelayed(pendingPausedHide, MEDIA_PAUSED_GRACE_MS);
     }
 
     private void cancelPausedHide() {
