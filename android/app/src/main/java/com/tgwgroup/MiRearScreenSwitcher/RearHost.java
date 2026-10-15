@@ -97,7 +97,7 @@ public class RearHost {
             if (had && RearStack.isEmpty()) restoreRear(ctx);
             return;
         }
-        // Notification timeout with nothing else running: close the pager to stock rear home.
+        // Notification timeout with nothing else running: hide the pager to stock rear home (pager stays alive).
         // When media or charging is still active the pager stays and just updates its pages.
         if (type == RearStack.Type.NOTIFICATION && RearStack.isEmpty()) {
             RearHostActivity rear = RearHostActivity.getRearInstance();
@@ -114,11 +114,12 @@ public class RearHost {
     private static final long HOME_RECOVERY_DELAY_MS = 3000;
     private static Runnable pendingHomeRecovery;
 
-    /** Dismiss the pager to the stock rear home. Features still running bring it back on an interval. */
+    /**
+     * Hide the pager behind the stock rear home without destroying it.
+     * The task stays alive so media/notification/charging can bring it back instantly.
+     */
     public static void goHome(Context ctx) {
         cancelHomeRecovery();
-        RearHostActivity host = RearHostActivity.getRearInstance();
-        if (host != null) host.finishToHome();
         restoreRear(ctx);
         scheduleHomeRecovery(ctx);
     }
@@ -147,7 +148,7 @@ public class RearHost {
 
     private static void homeRecover(Context ctx) {
         pendingHomeRecovery = null;
-        if (RearHostActivity.getRearInstance() != null) return;
+        if (RearHostActivity.isVisible()) return;
         boolean notiActive = RearStack.contains(RearStack.Type.NOTIFICATION);
         boolean chargingActive = RearStack.contains(RearStack.Type.CHARGING);
         boolean mediaActive = isMediaActive();

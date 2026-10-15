@@ -204,12 +204,6 @@ public class RearHostActivity extends Activity {
         runOnUiThread(this::finish);
     }
 
-    /** Swipe-up home: finish host without letting onDestroy re-show it. */
-    public void finishToHome() {
-        homeRequested = true;
-        finishHost();
-    }
-
     public void updateBattery(int level) {
         runOnUiThread(() -> {
             Bundle b = RearStack.get(RearStack.Type.CHARGING);
