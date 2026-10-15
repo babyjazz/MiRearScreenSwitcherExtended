@@ -64,15 +64,18 @@ public class RearHost {
         RearHostActivity host = RearHostActivity.getRearInstance();
         boolean ok;
         if (host != null) {
-            // With the pager, showing a feature just updates its page and may auto-switch.
-            host.onFeatureChanged();
             ok = true;
             if (type == RearStack.Type.NOTIFICATION) {
                 exec(ts, WAKE_CMD);
                 disableLauncher(ts);
             }
-            if (!RearHostActivity.isVisible()) {
-                // Task exists on the rear but is backgrounded; no --display 1 (HyperOS rejects it as a new-task launch)
+            if (RearHostActivity.isVisible()) {
+                // Pager already front: update pages immediately.
+                host.onFeatureChanged();
+            } else {
+                // Pager is alive but backgrounded (stock rear home on top).
+                // Bring it front first; onResume will bind the current stack and start
+                // animations only when the pager is actually visible.
                 exec(ts, "am start -n " + HOST_COMPONENT);
             }
         } else {
@@ -111,7 +114,7 @@ public class RearHost {
     }
 
     // Swipe-up home: dismiss MRSS to stock rear home; bring it back on an interval if a feature is still active.
-    private static final long HOME_RECOVERY_DELAY_MS = 3000;
+    private static final long HOME_RECOVERY_DELAY_MS = 4000;
     private static Runnable pendingHomeRecovery;
 
     /**
@@ -122,6 +125,16 @@ public class RearHost {
         cancelHomeRecovery();
         restoreRear(ctx);
         scheduleHomeRecovery(ctx);
+    }
+
+    /** If a feature is active and the pager task is alive, bring it to the front (no cold start). */
+    public static void bringPagerToFrontIfActive() {
+        if (RearStack.isEmpty()) return;
+        if (RearHostActivity.getRearInstance() == null) return;
+        ITaskService ts = taskService();
+        if (ts != null) {
+            exec(ts, "am start -n " + HOST_COMPONENT);
+        }
     }
 
     private static boolean isMediaActive() {

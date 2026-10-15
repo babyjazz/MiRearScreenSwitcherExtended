@@ -244,13 +244,11 @@ public class NotificationService extends NotificationListenerService {
                     Log.w(TAG, "Screen off: TaskService unavailable, cannot wake rear");
                     return;
                 }
-                // Media page already on the rear: leave it alone, waking would just bring up the home screen
-                if (RearStack.contains(RearStack.Type.MEDIA)) {
-                    Log.d(TAG, "Screen off: media showing, not waking");
-                    return;
-                }
                 taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
                 Log.d(TAG, "✓ Woke rear screen while locked");
+                // If a feature is active (media/noti/charging), bring the already-alive pager
+                // front instead of leaving the stock rear home visible.
+                RearHost.bringPagerToFrontIfActive();
             } catch (Throwable t) {
                 Log.w(TAG, "Failed to wake rear screen while locked: " + t.getMessage());
             }
