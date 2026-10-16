@@ -76,6 +76,8 @@ public class RearHost {
                 // Pager is alive but backgrounded (stock rear home on top).
                 // Bring it front first; onResume will bind the current stack and start
                 // animations only when the pager is actually visible.
+                // Media: also refresh the music page now; a dim/sleeping rear may never resume the activity.
+                if (type == RearStack.Type.MEDIA) host.refreshMusic();
                 exec(ts, "am start -n " + HOST_COMPONENT);
             }
         } else {

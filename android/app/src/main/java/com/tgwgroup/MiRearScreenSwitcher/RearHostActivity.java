@@ -243,6 +243,16 @@ public class RearHostActivity extends Activity {
         });
     }
 
+    /** Refresh only the music page (e.g. track change while the rear is dim/stopped). Safe from any thread. */
+    public void refreshMusic() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            handler.post(this::refreshMusic);
+            return;
+        }
+        if (!onRear || isDestroyed() || pagerView == null) return;
+        pagerView.bindMusic(RearStack.get(RearStack.Type.MEDIA));
+    }
+
     /** Re-bind all three pages and auto-switch the pager. Safe from any thread. */
     public void onFeatureChanged() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
