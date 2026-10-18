@@ -78,7 +78,7 @@ public class RearHost {
                 // animations only when the pager is actually visible.
                 // Media: also refresh the music page now; a dim/sleeping rear may never resume the activity.
                 if (type == RearStack.Type.MEDIA) host.refreshMusic();
-                exec(ts, "am start -n " + HOST_COMPONENT);
+                frontHost(ctx, ts);
             }
         } else {
             ok = launchHost(ctx, ts, type);
@@ -139,7 +139,7 @@ public class RearHost {
         ITaskService ts = taskService();
         if (RearHostActivity.getRearInstance() != null) {
             if (ts != null) {
-                exec(ts, "am start -n " + HOST_COMPONENT);
+                frontHost(ctx, ts);
             }
             return;
         }
@@ -318,18 +318,12 @@ public class RearHost {
                 if (waitOnRear(600)) return true;
             }
 
-            exec(ts, "am start -n " + HOST_COMPONENT);
+            // HyperOS4 denies a rear-targeted `am start` while the keyguard is locked; `--display 0`
+            // bypasses that gate and HyperOS still lands the task on the rear (see frontHost).
+            exec(ts, "am start " + (locked ? "--display 0 " : "") + "-n " + HOST_COMPONENT);
             sleep(50);
-            String taskId = null;
-            for (int i = 0; i < 60 && taskId == null; i++) {
-                sleep(40);
-                String r = ts.executeShellCommandWithResult("am stack list | grep RearHostActivity");
-                if (r != null) {
-                    Matcher m = Pattern.compile("taskId=(\\d+)").matcher(r);
-                    if (m.find()) taskId = m.group(1);
-                }
-            }
-            if (taskId == null) {
+            int taskId = findHostTaskId(ts);
+            if (taskId < 0) {
                 Log.e(TAG, "No host taskId found");
                 return false;
             }
@@ -344,6 +338,43 @@ public class RearHost {
         } finally {
             releaseWakeLock();
         }
+    }
+
+    /**
+     * Bring an already-alive pager task to the front.
+     * HyperOS4 (OS4.0.4.0) denies a rear-targeted `am start` while the keyguard is locked
+     * ("rearDisplay check locked ... -> deny", result code=102) - including the bare start of an
+     * existing task. Launching with `--display 0` skips that gate; HyperOS still routes the task to
+     * the rear, and `am display move-stack` completes the job if it landed on the main display instead.
+     */
+    private static void frontHost(Context ctx, ITaskService ts) {
+        if (ts == null) return;
+        KeyguardManager km = (KeyguardManager) ctx.getSystemService(Context.KEYGUARD_SERVICE);
+        boolean locked = km != null && km.isKeyguardLocked();
+        if (!locked) {
+            exec(ts, "am start -n " + HOST_COMPONENT);
+            return;
+        }
+        exec(ts, "am start --display 0 -n " + HOST_COMPONENT);
+        sleep(150);
+        int taskId = findHostTaskId(ts);
+        if (taskId > 0) exec(ts, "am display move-stack " + taskId + " 1");
+    }
+
+    /** Poll `am stack list` for the pager task id; -1 if not found. */
+    private static int findHostTaskId(ITaskService ts) {
+        for (int i = 0; i < 60; i++) {
+            try {
+                String r = ts.executeShellCommandWithResult("am stack list | grep RearHostActivity");
+                if (r != null) {
+                    Matcher m = Pattern.compile("taskId=(\\d+)").matcher(r);
+                    if (m.find()) return Integer.parseInt(m.group(1));
+                }
+            } catch (Throwable ignored) {
+            }
+            sleep(40);
+        }
+        return -1;
     }
 
     /** Called by the host once its task is gone and the stack is empty. Puts back the projected app or the stock launcher. */
