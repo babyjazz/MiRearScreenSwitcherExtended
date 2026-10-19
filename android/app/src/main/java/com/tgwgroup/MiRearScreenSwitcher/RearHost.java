@@ -55,25 +55,30 @@ public class RearHost {
                 chargingSelfFinished = true;
             }
         }
-        Log.d(TAG, "show " + type + " top=" + RearStack.top() + " host=" + RearHostActivity.getInstance()
+        cancelHomeRecovery();
+        Log.d(TAG, "show " + type + " host=" + RearHostActivity.getInstance()
             + " onRear=" + (RearHostActivity.getRearInstance() != null));
-        if (RearStack.top() != type) return; // covered by a higher-priority entry; surfaces when that one ends
-
         if (type == RearStack.Type.CHARGING) chargingSelfFinished = false;
 
         ITaskService ts = taskService();
         RearHostActivity host = RearHostActivity.getRearInstance();
         boolean ok;
         if (host != null) {
-            host.render();
             ok = true;
             if (type == RearStack.Type.NOTIFICATION) {
                 exec(ts, WAKE_CMD);
                 disableLauncher(ts);
             }
-            if (!RearHostActivity.isVisible()) {
-                // Task exists on the rear but is backgrounded; no --display 1 (HyperOS rejects it as a new-task launch)
-                exec(ts, "am start -n " + HOST_COMPONENT);
+            if (RearHostActivity.isVisible()) {
+                // Pager already front: update pages immediately.
+                host.onFeatureChanged();
+            } else {
+                // Pager is alive but backgrounded (stock rear home on top).
+                // Bring it front first; onResume will bind the current stack and start
+                // animations only when the pager is actually visible.
+                // Media: also refresh the music page now; a dim/sleeping rear may never resume the activity.
+                if (type == RearStack.Type.MEDIA) host.refreshMusic();
+                frontHost(ctx, ts);
             }
         } else {
             ok = launchHost(ctx, ts, type);
@@ -84,7 +89,7 @@ public class RearHost {
         }
     }
 
-    /** Remove an experience. If it was the last one, the host tears down and restores the rear screen. */
+    /** Remove an experience. The pager host stays alive and shows empty states. */
     public static void hide(Context ctx, RearStack.Type type) {
         if (type == RearStack.Type.CHARGING) chargingSelfFinished = true;
         boolean had = RearStack.contains(type);
@@ -97,7 +102,95 @@ public class RearHost {
             if (had && RearStack.isEmpty()) restoreRear(ctx);
             return;
         }
-        if (RearStack.isEmpty()) host.finishHost(); else host.render();
+        // Notification timeout with nothing else running: hide the pager to stock rear home (pager stays alive).
+        // When media or charging is still active the pager stays and just updates its pages.
+        if (type == RearStack.Type.NOTIFICATION && RearStack.isEmpty()) {
+            RearHostActivity rear = RearHostActivity.getRearInstance();
+            if (rear != null) {
+                goHome(ctx);
+                return;
+            }
+        }
+        // Keep the host as the idle rear home; feature removal only updates its pages.
+        host.onFeatureChanged();
+    }
+
+    // Swipe-up home: dismiss MRSS to stock rear home; bring it back on an interval if a feature is still active.
+    private static final long HOME_RECOVERY_DELAY_MS = 4000;
+    private static Runnable pendingHomeRecovery;
+
+    /**
+     * Hide the pager behind the stock rear home without destroying it.
+     * The task stays alive so media/notification/charging can bring it back instantly.
+     */
+    public static void goHome(Context ctx) {
+        cancelHomeRecovery();
+        restoreRear(ctx);
+        scheduleHomeRecovery(ctx);
+    }
+
+    /**
+     * If a feature is active, make the pager frontmost again.
+     * - Pager alive: bring it front with a bare am start (no cold start).
+     * - Pager gone (e.g. after display sleep removed it): cold-relaunch the top feature.
+     */
+    public static void bringPagerToFrontIfActive(Context ctx) {
+        if (RearStack.isEmpty()) return;
+        ITaskService ts = taskService();
+        if (RearHostActivity.getRearInstance() != null) {
+            if (ts != null) {
+                frontHost(ctx, ts);
+            }
+            return;
+        }
+        RearStack.Type top = RearStack.top();
+        if (top != null) {
+            show(ctx, top, RearStack.get(top));
+        }
+    }
+
+    /** Put the rear display to sleep (dim). Used when the user double-taps on a feature page. */
+    public static void dimRearScreen() {
+        ITaskService ts = taskService();
+        if (ts != null) {
+            exec(ts, "input -d 1 keyevent KEYCODE_SLEEP");
+        }
+    }
+
+    private static boolean isMediaActive() {
+        MediaController c = NotificationService.getActiveMediaController();
+        PlaybackState ps = c == null ? null : c.getPlaybackState();
+        if (ps == null) return false;
+        int state = ps.getState();
+        return state != PlaybackState.STATE_STOPPED && state != PlaybackState.STATE_NONE;
+    }
+
+    public static void cancelHomeRecovery() {
+        if (pendingHomeRecovery != null) {
+            recoveryHandler.removeCallbacks(pendingHomeRecovery);
+            pendingHomeRecovery = null;
+        }
+    }
+
+    private static void scheduleHomeRecovery(Context ctx) {
+        cancelHomeRecovery();
+        final Context app = ctx.getApplicationContext();
+        pendingHomeRecovery = () -> homeRecover(app);
+        recoveryHandler.postDelayed(pendingHomeRecovery, HOME_RECOVERY_DELAY_MS);
+    }
+
+    private static void homeRecover(Context ctx) {
+        pendingHomeRecovery = null;
+        if (RearHostActivity.isVisible()) return;
+        boolean notiActive = RearStack.contains(RearStack.Type.NOTIFICATION);
+        boolean chargingActive = RearStack.contains(RearStack.Type.CHARGING);
+        boolean mediaActive = isMediaActive();
+        RearStack.Type top;
+        if (notiActive) top = RearStack.Type.NOTIFICATION;
+        else if (chargingActive) top = RearStack.Type.CHARGING;
+        else if (mediaActive) top = RearStack.Type.MEDIA;
+        else return;
+        show(ctx, top, RearStack.get(top));
     }
 
     // Media recovery after the user swipes media away or HyperOS removes it: only if it is still playing and still on top
@@ -126,9 +219,7 @@ public class RearHost {
     private static void recoverMedia(Context ctx) {
         pendingRecovery = null;
         if (RearStack.top() != RearStack.Type.MEDIA || RearHostActivity.isVisible()) return;
-        MediaController c = NotificationService.getActiveMediaController();
-        PlaybackState s = c == null ? null : c.getPlaybackState();
-        if (s == null || s.getState() != PlaybackState.STATE_PLAYING) return;
+        if (!isMediaActive()) return;
         long now = System.currentTimeMillis();
         if (now - recoveryWindowStart > MEDIA_RECOVERY_WINDOW_MS) {
             recoveryWindowStart = now;
@@ -227,18 +318,12 @@ public class RearHost {
                 if (waitOnRear(600)) return true;
             }
 
-            exec(ts, "am start -n " + HOST_COMPONENT);
+            // HyperOS4 denies a rear-targeted `am start` while the keyguard is locked; `--display 0`
+            // bypasses that gate and HyperOS still lands the task on the rear (see frontHost).
+            exec(ts, "am start " + (locked ? "--display 0 " : "") + "-n " + HOST_COMPONENT);
             sleep(50);
-            String taskId = null;
-            for (int i = 0; i < 60 && taskId == null; i++) {
-                sleep(40);
-                String r = ts.executeShellCommandWithResult("am stack list | grep RearHostActivity");
-                if (r != null) {
-                    Matcher m = Pattern.compile("taskId=(\\d+)").matcher(r);
-                    if (m.find()) taskId = m.group(1);
-                }
-            }
-            if (taskId == null) {
+            int taskId = findHostTaskId(ts);
+            if (taskId < 0) {
                 Log.e(TAG, "No host taskId found");
                 return false;
             }
@@ -253,6 +338,43 @@ public class RearHost {
         } finally {
             releaseWakeLock();
         }
+    }
+
+    /**
+     * Bring an already-alive pager task to the front.
+     * HyperOS4 (OS4.0.4.0) denies a rear-targeted `am start` while the keyguard is locked
+     * ("rearDisplay check locked ... -> deny", result code=102) - including the bare start of an
+     * existing task. Launching with `--display 0` skips that gate; HyperOS still routes the task to
+     * the rear, and `am display move-stack` completes the job if it landed on the main display instead.
+     */
+    private static void frontHost(Context ctx, ITaskService ts) {
+        if (ts == null) return;
+        KeyguardManager km = (KeyguardManager) ctx.getSystemService(Context.KEYGUARD_SERVICE);
+        boolean locked = km != null && km.isKeyguardLocked();
+        if (!locked) {
+            exec(ts, "am start -n " + HOST_COMPONENT);
+            return;
+        }
+        exec(ts, "am start --display 0 -n " + HOST_COMPONENT);
+        sleep(150);
+        int taskId = findHostTaskId(ts);
+        if (taskId > 0) exec(ts, "am display move-stack " + taskId + " 1");
+    }
+
+    /** Poll `am stack list` for the pager task id; -1 if not found. */
+    private static int findHostTaskId(ITaskService ts) {
+        for (int i = 0; i < 60; i++) {
+            try {
+                String r = ts.executeShellCommandWithResult("am stack list | grep RearHostActivity");
+                if (r != null) {
+                    Matcher m = Pattern.compile("taskId=(\\d+)").matcher(r);
+                    if (m.find()) return Integer.parseInt(m.group(1));
+                }
+            } catch (Throwable ignored) {
+            }
+            sleep(40);
+        }
+        return -1;
     }
 
     /** Called by the host once its task is gone and the stack is empty. Puts back the projected app or the stock launcher. */

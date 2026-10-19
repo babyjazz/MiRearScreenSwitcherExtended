@@ -85,8 +85,6 @@ public class NotificationService extends NotificationListenerService {
     private static final long MEDIA_UPDATE_DEBOUNCE_MS = 250;
     private final android.os.Handler mediaUpdateHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable pendingMediaUpdate;
-    // Paused media stays up this long before it is hidden
-    private static final long MEDIA_PAUSED_GRACE_MS = 5000;
     private Runnable pendingPausedHide;
     private String lastMediaSignature; // last media state pushed to the rear (pkg|title|artist|playing|art)
 
@@ -222,6 +220,45 @@ public class NotificationService extends NotificationListenerService {
         }
     };
     
+    // Rear display state listener: when display 1 turns back ON and a feature is active,
+    // bring the pager front automatically (it may have been removed while the display slept).
+    private android.hardware.display.DisplayManager rearDisplayManager;
+    private android.hardware.display.DisplayManager.DisplayListener rearDisplayListener;
+
+    private void registerRearDisplayListener() {
+        try {
+            rearDisplayManager = (android.hardware.display.DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+            if (rearDisplayManager == null) return;
+            rearDisplayListener = new android.hardware.display.DisplayManager.DisplayListener() {
+                @Override public void onDisplayAdded(int displayId) {}
+                @Override public void onDisplayRemoved(int displayId) {}
+                @Override public void onDisplayChanged(int displayId) {
+                    if (displayId != 1) return;
+                    android.view.Display d = rearDisplayManager.getDisplay(1);
+                    if (d != null && d.getState() == android.view.Display.STATE_ON) {
+                        RearHost.bringPagerToFrontIfActive(NotificationService.this);
+                    }
+                }
+            };
+            rearDisplayManager.registerDisplayListener(rearDisplayListener, null);
+            Log.d(TAG, "✓ Rear display listener registered");
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to register rear display listener: " + t.getMessage());
+        }
+    }
+
+    private void unregisterRearDisplayListener() {
+        try {
+            if (rearDisplayManager != null && rearDisplayListener != null) {
+                rearDisplayManager.unregisterDisplayListener(rearDisplayListener);
+                rearDisplayManager = null;
+                rearDisplayListener = null;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to unregister rear display listener: " + t.getMessage());
+        }
+    }
+
     // Broadcast receiver: wake the rear screen when locked (optional, off by default)
     // Since Android 3.1, ACTION_SCREEN_OFF/ON no longer reach manifest-declared receivers;
     // they only arrive via a receiver registered dynamically in a running component, so this lives in the persistent NotificationService.
@@ -246,13 +283,11 @@ public class NotificationService extends NotificationListenerService {
                     Log.w(TAG, "Screen off: TaskService unavailable, cannot wake rear");
                     return;
                 }
-                // Media page already on the rear: leave it alone, waking would just bring up the home screen
-                if (RearStack.contains(RearStack.Type.MEDIA)) {
-                    Log.d(TAG, "Screen off: media showing, not waking");
-                    return;
-                }
                 taskService.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
                 Log.d(TAG, "✓ Woke rear screen while locked");
+                // If a feature is active (media/noti/charging), bring the already-alive pager
+                // front instead of leaving the stock rear home visible.
+                RearHost.bringPagerToFrontIfActive(context);
             } catch (Throwable t) {
                 Log.w(TAG, "Failed to wake rear screen while locked: " + t.getMessage());
             }
@@ -369,6 +404,8 @@ public class NotificationService extends NotificationListenerService {
         } catch (Throwable t) {
             Log.w(TAG, "Failed to register MediaSession listener: " + t.getMessage());
         }
+
+        registerRearDisplayListener();
     }
     
     private void bindTaskService() {
@@ -462,6 +499,14 @@ public class NotificationService extends NotificationListenerService {
             Notification notification = sbn.getNotification();
             
             Log.d(TAG, "📢 Notification received: " + packageName);
+
+            // Media page is driven only by the control-center / active MediaSession flow.
+            // Any notification from the currently active media app is a playback notification
+            // (lockscreen control or track change); do not let it pop as a regular notification.
+            if (activeMediaPackage != null && activeMediaPackage.equals(packageName)) {
+                Log.d(TAG, "⏭️ Skipping notification from active media app (control center flow): " + packageName);
+                return;
+            }
 
             // Skip media-playback notifications: those go through the dedicated media display flow (MediaSessionManager),
             // not the normal notification popup, otherwise every track/state change pops a chat-style notification and interrupts the media UI.
@@ -607,9 +652,9 @@ public class NotificationService extends NotificationListenerService {
             if (isPlaying) {
                 cancelPausedHide();
             } else {
-                // Paused: don't pop media up from nothing; if already showing, hide it after a grace period
-                if (!RearStack.contains(RearStack.Type.MEDIA)) return;
-                schedulePausedHide();
+                // Paused media stays visible, exactly like the control center page.
+                // No auto-hide: the page remains until the session stops/clears.
+                cancelPausedHide();
             }
 
             Bitmap art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
@@ -656,15 +701,6 @@ public class NotificationService extends NotificationListenerService {
         RearHost.hide(this, RearStack.Type.MEDIA);
     }
 
-    private void schedulePausedHide() {
-        if (pendingPausedHide != null) return; // grace period already running
-        pendingPausedHide = () -> {
-            pendingPausedHide = null;
-            hideMedia();
-        };
-        mediaUpdateHandler.postDelayed(pendingPausedHide, MEDIA_PAUSED_GRACE_MS);
-    }
-
     private void cancelPausedHide() {
         if (pendingPausedHide != null) {
             mediaUpdateHandler.removeCallbacks(pendingPausedHide);
@@ -700,6 +736,8 @@ public class NotificationService extends NotificationListenerService {
         }
 
         // Unregister broadcast receivers
+        unregisterRearDisplayListener();
+
         try {
             unregisterReceiver(settingsReceiver);
             Log.d(TAG, "✓ Broadcast receivers unregistered");

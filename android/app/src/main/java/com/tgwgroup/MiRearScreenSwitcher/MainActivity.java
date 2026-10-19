@@ -659,6 +659,13 @@ public class MainActivity extends FlutterActivity {
                         break;
                     }
                     
+                    case "setPagerDotsVisible": {
+                        boolean visible = (boolean) call.argument("visible");
+                        RearHostActivity.setDotsVisible(visible);
+                        result.success(true);
+                        break;
+                    }
+
                     case "toggleChargingService": {
                         // V2.3: toggle the charging service
                         boolean enabled = (boolean) call.argument("enabled");

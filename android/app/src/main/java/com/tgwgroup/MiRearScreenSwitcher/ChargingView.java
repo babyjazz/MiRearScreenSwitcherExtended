@@ -22,6 +22,7 @@ public class ChargingView implements RearView {
     private final TextView batteryText;
     private ValueAnimator fillAnimator;
     private Runnable finishRunnable;
+    private int lastLevel = -1;
 
     public ChargingView(Context context, ViewGroup parent) {
         this.context = context;
@@ -41,6 +42,14 @@ public class ChargingView implements RearView {
     public void bind(Bundle p) {
         int level = p.getInt("batteryLevel", 0);
         batteryText.setText(level + "%");
+        // The pager re-binds on every featureChanged tick (charging wake loop runs
+        // every ~2s). Only replay the full fill animation once per plug-in; later
+        // ticks just update the liquid to the current level without replaying.
+        if (lastLevel != -1) {
+            liquid.setFillLevel(level / 100f);
+            return;
+        }
+        lastLevel = level;
         startFill(level);
 
         batteryText.setAlpha(0f);
@@ -67,6 +76,7 @@ public class ChargingView implements RearView {
         cancelTimer();
         if (fillAnimator != null) fillAnimator.cancel();
         batteryText.animate().cancel();
+        lastLevel = -1;
     }
 
     /** Live battery update while visible (always-on mode). */
