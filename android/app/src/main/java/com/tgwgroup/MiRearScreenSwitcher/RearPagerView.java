@@ -270,7 +270,7 @@ public class RearPagerView {
             // A feature just became active (or priority changed): jump to it now.
             lastDesiredPage = desired;
             cancelAutoReturn();
-            setPage(desired, true);
+            setPage(desired, false); // automatic switch: hard cut, no half-scrolled blank frame
         } else if (desired == currentPage) {
             cancelAutoReturn();
         } else {
@@ -291,7 +291,7 @@ public class RearPagerView {
         cancelAutoReturn();
         pendingAutoReturn = () -> {
             pendingAutoReturn = null;
-            setPage(desired, true);
+            setPage(desired, false);
         };
         autoReturnHandler.postDelayed(pendingAutoReturn, AUTO_RETURN_DELAY_MS);
     }
@@ -327,8 +327,11 @@ public class RearPagerView {
     /** Persist the page to restore across sleeps. */
     public int saveForSleep(Context ctx) { return state.saveForSleep(ctx); }
 
-    /** Restore the persisted page after wake. */
-    public int restoreAfterWake(Context ctx) { return state.restoreAfterWake(ctx); }
+    /** After wake: the persisted page is only the fallback; the next onFeatureChanged jumps to the active feature. */
+    public void restoreAfterWake(Context ctx) {
+        state.markUserPage(state.restoreAfterWake(ctx));
+        lastDesiredPage = -1;
+    }
 
     private int dp(float value) {
         return (int) (value * context.getResources().getDisplayMetrics().density + 0.5f);

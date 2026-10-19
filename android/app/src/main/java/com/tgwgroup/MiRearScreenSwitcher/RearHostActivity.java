@@ -152,7 +152,7 @@ public class RearHostActivity extends Activity {
         RearHost.cancelMediaRecovery();
         initIfOnRear(); // moved from the main placeholder to the rear
         if (pagerView != null) {
-            pagerView.setPage(pagerView.restoreAfterWake(getApplicationContext()), false);
+            pagerView.restoreAfterWake(getApplicationContext());
             onFeatureChanged();
         }
     }
@@ -300,6 +300,12 @@ public class RearHostActivity extends Activity {
         if (onRear || displayId() != 1) return;
         Log.d(TAG, "init on rear");
         forceRearScreenDensityBeforeInflate();
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && getDisplay() != null) {
+            android.view.DisplayCutout c = getDisplay().getCutout();
+            if (c != null) DisplayInfoCache.getInstance().setCutout(new android.graphics.Rect(
+                c.getSafeInsetLeft(), c.getSafeInsetTop(), c.getSafeInsetRight(), c.getSafeInsetBottom()));
+            Breadcrumb.log(getApplicationContext(), "RearHost", "cutout=" + DisplayInfoCache.getInstance().getCachedInfo().cutout);
+        }
         rootFrame = new FrameLayout(this);
         pagerView = new RearPagerView(this, rootFrame);
         rootFrame.addView(pagerView.getView());

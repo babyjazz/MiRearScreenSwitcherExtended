@@ -80,6 +80,17 @@ public class DisplayInfoCache {
      * Get the cached rear-screen info.
      */
     public RearDisplayHelper.RearDisplayInfo getCachedInfo() {
+        RearDisplayHelper.RearDisplayInfo info = getParsedInfo();
+        if (cutoutOverride != null) info.cutout = cutoutOverride;
+        return info;
+    }
+
+    // The system's own cutout for display 1; wins over the dumpsys parse, which can miss it.
+    private volatile Rect cutoutOverride;
+
+    public void setCutout(Rect cutout) { cutoutOverride = cutout; }
+
+    private RearDisplayHelper.RearDisplayInfo getParsedInfo() {
         if (!initialized) {
             Log.w(TAG, "⚠️ Cache not initialized, returning defaults");
             RearDisplayHelper.RearDisplayInfo defaultInfo = new RearDisplayHelper.RearDisplayInfo();
