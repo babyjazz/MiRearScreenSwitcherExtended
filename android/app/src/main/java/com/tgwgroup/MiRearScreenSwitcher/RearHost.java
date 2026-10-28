@@ -56,6 +56,7 @@ public class RearHost {
             }
         }
         cancelHomeRecovery();
+        cancelIdleHome();
         Log.d(TAG, "show " + type + " host=" + RearHostActivity.getInstance()
             + " onRear=" + (RearHostActivity.getRearInstance() != null));
         if (type == RearStack.Type.CHARGING) chargingSelfFinished = false;
@@ -102,17 +103,30 @@ public class RearHost {
             if (had && RearStack.isEmpty()) restoreRear(ctx);
             return;
         }
-        // Notification timeout with nothing else running: hide the pager to stock rear home (pager stays alive).
-        // When media or charging is still active the pager stays and just updates its pages.
-        if (type == RearStack.Type.NOTIFICATION && RearStack.isEmpty()) {
-            RearHostActivity rear = RearHostActivity.getRearInstance();
-            if (rear != null) {
-                goHome(ctx);
-                return;
-            }
-        }
-        // Keep the host as the idle rear home; feature removal only updates its pages.
+        // Nothing left running: hide the pager to stock rear home (pager stays alive) after a short grace,
+        // so a feature that hands over to another (track change, noti -> media) never flashes home in between.
         host.onFeatureChanged();
+        if (RearStack.isEmpty()) scheduleIdleHome(ctx);
+    }
+
+    private static final long IDLE_HOME_GRACE_MS = 2000;
+    private static Runnable pendingIdleHome;
+
+    private static void scheduleIdleHome(Context ctx) {
+        cancelIdleHome();
+        final Context app = ctx.getApplicationContext();
+        pendingIdleHome = () -> {
+            pendingIdleHome = null;
+            if (RearStack.isEmpty() && RearHostActivity.getRearInstance() != null) goHome(app);
+        };
+        recoveryHandler.postDelayed(pendingIdleHome, IDLE_HOME_GRACE_MS);
+    }
+
+    private static void cancelIdleHome() {
+        if (pendingIdleHome != null) {
+            recoveryHandler.removeCallbacks(pendingIdleHome);
+            pendingIdleHome = null;
+        }
     }
 
     // Swipe-up home: dismiss MRSS to stock rear home; bring it back on an interval if a feature is still active.
@@ -341,11 +355,12 @@ public class RearHost {
     }
 
     /**
-     * Bring an already-alive pager task to the front.
+     * Bring an already-alive pager task (callers guarantee it is on display 1) to the front.
      * HyperOS4 (OS4.0.4.0) denies a rear-targeted `am start` while the keyguard is locked
      * ("rearDisplay check locked ... -> deny", result code=102) - including the bare start of an
-     * existing task. Launching with `--display 0` skips that gate; HyperOS still routes the task to
-     * the rear, and `am display move-stack` completes the job if it landed on the main display instead.
+     * existing task. `--display 0` would bypass that gate but moves the task onto the main display
+     * until move-stack sends it back: a visible flash on the main screen. Our task is already on the
+     * rear, only the stock rear launcher sits above it, so stopping that launcher uncovers us in place.
      */
     private static void frontHost(Context ctx, ITaskService ts) {
         if (ts == null) return;
@@ -355,10 +370,26 @@ public class RearHost {
             exec(ts, "am start -n " + HOST_COMPONENT);
             return;
         }
+        if (isHostOnTopOfRear(ts)) return;
+        disableLauncher(ts);
+        for (int t = 0; t < 600; t += 100) {
+            sleep(100);
+            if (isHostOnTopOfRear(ts)) return;
+        }
+        // ponytail: last resort, flashes the main screen; only hit when a non-launcher task covers the pager while locked
         exec(ts, "am start --display 0 -n " + HOST_COMPONENT);
         sleep(150);
         int taskId = findHostTaskId(ts);
         if (taskId > 0) exec(ts, "am display move-stack " + taskId + " 1");
+    }
+
+    private static boolean isHostOnTopOfRear(ITaskService ts) {
+        try {
+            String fg = ts.getForegroundAppOnDisplay(1);
+            return fg != null && fg.startsWith("com.tgwgroup.MiRearScreenSwitcher:");
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /** Poll `am stack list` for the pager task id; -1 if not found. */

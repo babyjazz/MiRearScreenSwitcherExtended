@@ -173,8 +173,10 @@ public class NotificationService extends NotificationListenerService {
             // Do not blindly take controllers.get(0): some apps (e.g. Taobao's TbAliveMedia) keep a
             // state=null placeholder session registered. Selecting it locks us onto a dead session that never updates,
             // and real playing sessions that appear later get blocked by the "already have a session" dedup logic.
+            // STOPPED/NONE count as dead too, or the 5s reconcile resurrects a page the callback just hid.
             for (MediaController c : controllers) {
-                if (c.getPlaybackState() != null) {
+                PlaybackState s = c.getPlaybackState();
+                if (s != null && s.getState() != PlaybackState.STATE_STOPPED && s.getState() != PlaybackState.STATE_NONE) {
                     chosen = c;
                     break;
                 }
