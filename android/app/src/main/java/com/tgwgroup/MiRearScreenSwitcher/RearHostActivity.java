@@ -184,6 +184,16 @@ public class RearHostActivity extends Activity {
         lastVisibleMs = System.currentTimeMillis() - shownSince;
         // Not finishing = swiped away / covered / rear slept; the task survives in the background
         if (isFinishing() || !onRear) return;
+        // Cleanup follows visibility, not intent: the user put the stock rear back, so revive the
+        // launcher (killed by the locked frontHost path) or official rear apps stay gone until reboot.
+        new Thread(() -> {
+            try {
+                ITaskService ts = RearHost.taskService();
+                if (ts != null) ts.executeShellCommand("am start --display 1 -n com.xiaomi.subscreencenter/.SubScreenLauncher");
+            } catch (Throwable t) {
+                Log.w(TAG, "Launcher revive on stop failed: " + t.getMessage());
+            }
+        }).start();
         if (pagerView != null) pagerView.saveForSleep(getApplicationContext());
         // With the pager as the idle rear home, a swipe-away that leaves the task alive is fine:
         // bring it back if the rear is still lit and the task was simply covered.
