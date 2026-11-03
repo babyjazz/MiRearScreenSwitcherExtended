@@ -267,6 +267,11 @@ public class RearHostActivity extends Activity {
             RearStack.contains(RearStack.Type.NOTIFICATION),
             RearStack.contains(RearStack.Type.CHARGING),
             RearStack.contains(RearStack.Type.MEDIA));
+        // Always-on charging: the rear must not time out, or the animation freezes behind a dozing panel.
+        boolean keepAwake = RearStack.top() == RearStack.Type.CHARGING
+            && getSharedPreferences("mrss_settings", MODE_PRIVATE).getBoolean("charging_always_on_enabled", false);
+        if (keepAwake) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     @Override
