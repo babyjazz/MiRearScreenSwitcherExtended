@@ -170,13 +170,18 @@ public class RearHostActivity extends Activity {
         shownSince = System.currentTimeMillis();
         // Slide up from the bottom whenever the pager appears (cold launch, bring-front
         // after goHome, wake from rear sleep). Snap-back drags never stop/start, no replay.
+        // Charging is skipped: its fill animation IS the entrance — a slide would cover its start.
         if (wasBackgrounded && onRear && rootFrame != null) {
-            rootFrame.setTranslationY(getResources().getDisplayMetrics().heightPixels);
-            rootFrame.animate()
-                    .translationY(0)
-                    .setDuration(250)
-                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                    .start();
+            handler.removeCallbacksAndMessages(null);
+            rootFrame.animate().cancel();
+            if (RearStack.top() != RearStack.Type.CHARGING) {
+                rootFrame.setTranslationY(getResources().getDisplayMetrics().heightPixels);
+                rootFrame.animate()
+                        .translationY(0)
+                        .setDuration(250)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                        .start();
+            }
         }
         // Locked and idle, HyperOS sleeps the rear ~1s after wake and removes our task. Waking again once the content is
         // actually visible keeps it lit (a wake right after move-stack is too early).
@@ -202,14 +207,18 @@ public class RearHostActivity extends Activity {
         if (isFinishing() || !onRear) return;
         // Cleanup follows visibility, not intent: the user put the stock rear back, so revive the
         // launcher (killed by the locked frontHost path) or official rear apps stay gone until reboot.
-        new Thread(() -> {
-            try {
-                ITaskService ts = RearHost.taskService();
-                if (ts != null) ts.executeShellCommand("am start --display 1 -n com.xiaomi.subscreencenter/.SubScreenLauncher");
-            } catch (Throwable t) {
-                Log.w(TAG, "Launcher revive on stop failed: " + t.getMessage());
-            }
-        }).start();
+        // A feature still active means goHome's auto-return owns the rear; a second launcher start
+        // only races the bring-front `am start` and can land the launcher above the pager.
+        if (RearStack.isEmpty()) {
+            new Thread(() -> {
+                try {
+                    ITaskService ts = RearHost.taskService();
+                    if (ts != null) ts.executeShellCommand("am start --display 1 -n com.xiaomi.subscreencenter/.SubScreenLauncher");
+                } catch (Throwable t) {
+                    Log.w(TAG, "Launcher revive on stop failed: " + t.getMessage());
+                }
+            }).start();
+        }
         if (pagerView != null) pagerView.saveForSleep(getApplicationContext());
         // With the pager as the idle rear home, a swipe-away that leaves the task alive is fine:
         // bring it back if the rear is still lit and the task was simply covered.
@@ -356,15 +365,18 @@ public class RearHostActivity extends Activity {
 
     /** Snap back or slide the rest of the way out, then go home with the translation reset. */
     private void finishDrag(boolean dismiss) {
-        float current = rootFrame.getTranslationY();
         int height = getResources().getDisplayMetrics().heightPixels;
         rootFrame.animate()
                 .translationY(dismiss ? height : 0)
                 .setDuration(dismiss ? 150 : 200)
+                .withEndAction(() -> {
+                    // Reset in the animation's end action, never postDelayed: a stale timer
+                    // fires mid-entrance if a bring-front races the dismiss (e.g. charger plug).
+                    rootFrame.setTranslationY(0);
+                })
                 .start();
         if (dismiss) {
             RearHost.goHome(getApplicationContext());
-            handler.postDelayed(() -> rootFrame.setTranslationY(0), 250);
         }
     }
 
