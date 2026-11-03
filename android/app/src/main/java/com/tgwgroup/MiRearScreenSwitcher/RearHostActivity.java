@@ -170,18 +170,15 @@ public class RearHostActivity extends Activity {
         shownSince = System.currentTimeMillis();
         // Slide up from the bottom whenever the pager appears (cold launch, bring-front
         // after goHome, wake from rear sleep). Snap-back drags never stop/start, no replay.
-        // Charging is skipped: its fill animation IS the entrance — a slide would cover its start.
         if (wasBackgrounded && onRear && rootFrame != null) {
             handler.removeCallbacksAndMessages(null);
             rootFrame.animate().cancel();
-            if (RearStack.top() != RearStack.Type.CHARGING) {
-                rootFrame.setTranslationY(getResources().getDisplayMetrics().heightPixels);
-                rootFrame.animate()
-                        .translationY(0)
-                        .setDuration(250)
-                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                        .start();
-            }
+            rootFrame.setTranslationY(getResources().getDisplayMetrics().heightPixels);
+            rootFrame.animate()
+                    .translationY(0)
+                    .setDuration(250)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .start();
         }
         // Locked and idle, HyperOS sleeps the rear ~1s after wake and removes our task. Waking again once the content is
         // actually visible keeps it lit (a wake right after move-stack is too early).
