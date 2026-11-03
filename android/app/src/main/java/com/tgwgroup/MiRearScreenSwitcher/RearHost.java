@@ -68,7 +68,6 @@ public class RearHost {
             ok = true;
             if (type == RearStack.Type.NOTIFICATION) {
                 exec(ts, WAKE_CMD);
-                disableLauncher(ts);
             }
             if (RearHostActivity.isVisible()) {
                 // Pager already front: update pages immediately.
@@ -312,7 +311,6 @@ public class RearHost {
             boolean locked = km != null && km.isKeyguardLocked();
 
             if (RearHostActivity.getInstance() == null) captureProjectedTask(ts);
-            if (type != RearStack.Type.MEDIA) disableLauncher(ts);
 
             // Window flags do not wake a dozing secondary display; only this command does.
             // Media refreshes deliberately do not wake the rear.
@@ -421,7 +419,9 @@ public class RearHost {
                     return;
                 }
                 if (taskId > 0) {
-                    ts.disableSubScreenLauncher();
+                    // Don't kill the launcher here: move-stack brings the projected app front,
+                    // and the launcher must stay alive underneath so official rear apps work
+                    // once the projected app is closed. Force-stop persists on HyperOS.
                     sleep(200);
                     ts.executeShellCommand("am display move-stack " + taskId + " 1");
                     sleep(200);
