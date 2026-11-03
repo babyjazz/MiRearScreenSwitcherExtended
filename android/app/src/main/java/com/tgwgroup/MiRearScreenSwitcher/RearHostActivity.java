@@ -45,6 +45,11 @@ public class RearHostActivity extends Activity {
     private RearPagerView pagerView;
     private boolean finishedByUs = false;
 
+    // Drag-to-dismiss: pager follows the finger down, dismiss past 40% of the screen.
+    private boolean dragging = false;
+    private boolean dragPossible = false;
+    private float downX, downY;
+
     public RearPagerView getPagerView() { return pagerView; }
 
     public static void setDotsVisible(boolean visible) {
@@ -286,11 +291,70 @@ public class RearHostActivity extends Activity {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (onRear && gestureDetector != null && gestureDetector.onTouchEvent(ev)) {
+        if (onRear && handleDragToDismiss(ev)) {
+            return true;
+        }
+        if (onRear && !dragging && gestureDetector != null && gestureDetector.onTouchEvent(ev)) {
             return true;
         }
         Breadcrumb.log(getApplicationContext(), "Gesture", "touch ev=" + ev.getAction() + " x=" + ev.getX() + " y=" + ev.getY());
         return super.dispatchTouchEvent(ev);
+    }
+
+    /** Pager follows the finger downward; release past 40% of the screen dismisses it. */
+    private boolean handleDragToDismiss(MotionEvent ev) {
+        if (rootFrame == null || !onRear) return false;
+        switch (ev.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                dragPossible = true;
+                dragging = false;
+                downX = ev.getX();
+                downY = ev.getY();
+                break;
+            case MotionEvent.ACTION_MOVE:
+                float dx = ev.getX() - downX;
+                float dy = ev.getY() - downY;
+                if (!dragging && dragPossible) {
+                    // Vertical intent only; horizontal swipes keep paging.
+                    if (Math.abs(dy) > dp(8) && Math.abs(dy) > Math.abs(dx)) {
+                        if (dy < 0) {
+                            dragPossible = false; // upward is goHome's job, not a drag
+                        } else {
+                            dragging = true;
+                        }
+                    }
+                }
+                if (dragging) rootFrame.setTranslationY(dy);
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                if (dragging) {
+                    float moved = ev.getY() - downY;
+                    boolean dismiss = ev.getActionMasked() == MotionEvent.ACTION_UP
+                            && moved > 0
+                            && getResources().getDisplayMetrics().heightPixels > 0
+                            && moved > 0.4f * getResources().getDisplayMetrics().heightPixels;
+                    finishDrag(dismiss);
+                }
+                dragPossible = false;
+                dragging = false;
+                break;
+        }
+        return dragging;
+    }
+
+    /** Snap back or slide the rest of the way out, then go home with the translation reset. */
+    private void finishDrag(boolean dismiss) {
+        float current = rootFrame.getTranslationY();
+        int height = getResources().getDisplayMetrics().heightPixels;
+        rootFrame.animate()
+                .translationY(dismiss ? height : 0)
+                .setDuration(dismiss ? 150 : 200)
+                .start();
+        if (dismiss) {
+            RearHost.goHome(getApplicationContext());
+            handler.postDelayed(() -> rootFrame.setTranslationY(0), 250);
+        }
     }
 
     private int dp(float value) {
