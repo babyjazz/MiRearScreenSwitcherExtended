@@ -369,15 +369,21 @@ public class RearHost {
             return;
         }
         if (isHostOnTopOfRear(ts)) return;
-        disableLauncher(ts);
-        for (int t = 0; t < 600; t += 100) {
-            sleep(100);
-            if (isHostOnTopOfRear(ts)) return;
+        // Never force-stop the launcher here: official rear cards (timer etc.) die with it mid-run
+        // and a restarted launcher does not restore them. move-stack onto the display the task
+        // already sits on reorders it to the front, and unlike am start it is not denied while locked.
+        int taskId = findHostTaskId(ts);
+        if (taskId > 0) {
+            exec(ts, "am display move-stack " + taskId + " 1");
+            for (int t = 0; t < 600; t += 100) {
+                sleep(100);
+                if (isHostOnTopOfRear(ts)) return;
+            }
         }
-        // ponytail: last resort, flashes the main screen; only hit when a non-launcher task covers the pager while locked
+        // ponytail: last resort, flashes the main screen; only hit when move-stack failed while locked
         exec(ts, "am start --display 0 -n " + HOST_COMPONENT);
         sleep(150);
-        int taskId = findHostTaskId(ts);
+        if (taskId < 0) taskId = findHostTaskId(ts);
         if (taskId > 0) exec(ts, "am display move-stack " + taskId + " 1");
     }
 
