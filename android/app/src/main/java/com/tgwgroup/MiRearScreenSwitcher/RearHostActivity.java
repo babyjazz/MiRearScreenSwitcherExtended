@@ -165,8 +165,19 @@ public class RearHostActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        boolean wasBackgrounded = !visible;
         visible = true;
         shownSince = System.currentTimeMillis();
+        // Slide up from the bottom whenever the pager appears (cold launch, bring-front
+        // after goHome, wake from rear sleep). Snap-back drags never stop/start, no replay.
+        if (wasBackgrounded && onRear && rootFrame != null) {
+            rootFrame.setTranslationY(getResources().getDisplayMetrics().heightPixels);
+            rootFrame.animate()
+                    .translationY(0)
+                    .setDuration(250)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .start();
+        }
         // Locked and idle, HyperOS sleeps the rear ~1s after wake and removes our task. Waking again once the content is
         // actually visible keeps it lit (a wake right after move-stack is too early).
         if (onRear) {
