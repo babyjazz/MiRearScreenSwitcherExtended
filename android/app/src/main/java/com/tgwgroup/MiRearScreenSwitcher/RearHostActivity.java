@@ -31,6 +31,24 @@ public class RearHostActivity extends Activity {
         return h;
     }
 
+    /** Swipe up: dismiss the notification on the noti page, otherwise home the pager. */
+    private void swipeUpAction() {
+        if (pagerView != null
+                && pagerView.getCurrentPage() == RearPagerState.NOTIFICATION
+                && RearStack.contains(RearStack.Type.NOTIFICATION)) {
+            RearHost.hide(getApplicationContext(), RearStack.Type.NOTIFICATION);
+        } else {
+            RearHost.goHome(getApplicationContext());
+        }
+    }
+
+    /** Noti page with an active notification: swipes up/down dismiss the notification, not the pager. */
+    private boolean isNotiDismissContext() {
+        return pagerView != null
+                && pagerView.getCurrentPage() == RearPagerState.NOTIFICATION
+                && RearStack.contains(RearStack.Type.NOTIFICATION);
+    }
+
     /** Any live instance, including a main-display placeholder waiting to be moved. */
     public static RearHostActivity getInstance() { return instance; }
     /** The instance, only once it is initialized on the rear display. */
@@ -92,14 +110,8 @@ public class RearHostActivity extends Activity {
                         + " notiActive=" + RearStack.contains(RearStack.Type.NOTIFICATION));
                 // Double tap is only used by MRSS while the pager is front. Consume it so
                 // HyperOS does not treat it as "go home".
-                if (pagerView != null
-                        && pagerView.getCurrentPage() == RearPagerState.NOTIFICATION
-                        && RearStack.contains(RearStack.Type.NOTIFICATION)) {
-                    RearHost.hide(getApplicationContext(), RearStack.Type.NOTIFICATION);
-                } else {
-                    Breadcrumb.log(getApplicationContext(), "Gesture", "dim rear screen");
-                    RearHost.dimRearScreen();
-                }
+                Breadcrumb.log(getApplicationContext(), "Gesture", "dim rear screen");
+                RearHost.dimRearScreen();
                 return true;
             }
 
@@ -117,7 +129,7 @@ public class RearHostActivity extends Activity {
                 float dx = e2.getX() - e1.getX();
                 if (dy < -dp(60) && Math.abs(dy) > Math.abs(dx)) {
                     homeTriggered = true;
-                    RearHost.goHome(getApplicationContext());
+                    swipeUpAction();
                     return true;
                 }
                 return false;
@@ -130,7 +142,7 @@ public class RearHostActivity extends Activity {
                         && Math.abs(velocityY) > Math.abs(velocityX) * 1.2f
                         && velocityY < -600) {
                     homeTriggered = true;
-                    RearHost.goHome(getApplicationContext());
+                    swipeUpAction();
                     return true;
                 }
                 return false;
@@ -346,12 +358,18 @@ public class RearHostActivity extends Activity {
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
                 if (dragging) {
-                    float moved = ev.getY() - downY;
-                    boolean dismiss = ev.getActionMasked() == MotionEvent.ACTION_UP
-                            && moved > 0
-                            && getResources().getDisplayMetrics().heightPixels > 0
-                            && moved > 0.4f * getResources().getDisplayMetrics().heightPixels;
-                    finishDrag(dismiss);
+                    if (isNotiDismissContext()) {
+                        // On the noti page the drag always dismisses the notification (release = commit),
+                        // then the pager slides back up to whatever remains; hide() ends the pager if the stack is empty.
+                        finishDragToNotiDismiss();
+                    } else {
+                        float moved = ev.getY() - downY;
+                        boolean dismiss = ev.getActionMasked() == MotionEvent.ACTION_UP
+                                && moved > 0
+                                && getResources().getDisplayMetrics().heightPixels > 0
+                                && moved > 0.4f * getResources().getDisplayMetrics().heightPixels;
+                        finishDrag(dismiss);
+                    }
                 }
                 dragPossible = false;
                 dragging = false;
@@ -375,6 +393,16 @@ public class RearHostActivity extends Activity {
         if (dismiss) {
             RearHost.goHome(getApplicationContext());
         }
+    }
+
+    /** Noti-page drag release: drop the notification and slide the pager back to whatever remains. */
+    private void finishDragToNotiDismiss() {
+        RearHost.hide(getApplicationContext(), RearStack.Type.NOTIFICATION);
+        rootFrame.animate()
+                .translationY(0)
+                .setDuration(250)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .start();
     }
 
     private int dp(float value) {
