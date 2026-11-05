@@ -4,6 +4,7 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.CornerPathEffect;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -38,12 +39,14 @@ public class VolumeOverlayView extends View {
     private final Paint trackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint arcPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path clip = new Path();
     private final Path wave = new Path();
     private final Path speaker = new Path();
     private final RectF capsule = new RectF();
     private final RectF pillTrack = new RectF();
     private final RectF ring = new RectF();
+    private final RectF iconArc = new RectF();
 
     private final int leftInset; // camera cutout: content is centered in what is right of it
     private int style = 0;
@@ -77,6 +80,7 @@ public class VolumeOverlayView extends View {
         pctPaint.setTypeface(Typeface.DEFAULT_BOLD);
         textPaint.setColor(Color.WHITE);
         textPaint.setTypeface(Typeface.DEFAULT_BOLD);
+        iconPaint.setColor(Color.WHITE);
     }
 
     /** Safe to call on every volume event; restarts the hide timer. */
@@ -195,66 +199,58 @@ public class VolumeOverlayView extends View {
         c.drawText("%", tx + slotW, baseline, pctPaint);
     }
 
-    // ---- Style 1: speaker icon, waves light up with the level, mute shows a red slash ----
-    private void drawSpeaker(Canvas c, int w, int h) {
-        float cx = leftInset + (w - leftInset) / 2f;
-        float u = h * 0.02f; // design unit scaled to the screen
-        float iconC = h / 2f - h * 0.14f;
-
+    // Shared speaker glyph: rounded body plus three wave arcs that light up with the level.
+    // cx/cy is the glyph centre, u its design unit (glyph is ~8.2u wide, ~5.4u tall). Muted shows a red slash.
+    private void drawSpeakerIcon(Canvas c, float cx, float cy, float u, int pct) {
+        float x0 = cx - 4.1f * u;
         speaker.reset();
-        speaker.moveTo(cx - 3.2f * u, iconC - 1.4f * u);
-        speaker.lineTo(cx - 1.4f * u, iconC - 1.4f * u);
-        speaker.lineTo(cx + 0.4f * u, iconC - 3.2f * u);
-        speaker.lineTo(cx + 0.4f * u, iconC + 3.2f * u);
-        speaker.lineTo(cx - 1.4f * u, iconC + 1.4f * u);
-        speaker.lineTo(cx - 3.2f * u, iconC + 1.4f * u);
+        speaker.moveTo(x0, cy - 1.1f * u);
+        speaker.lineTo(x0 + 1.3f * u, cy - 1.1f * u);
+        speaker.lineTo(x0 + 3.2f * u, cy - 2.7f * u);
+        speaker.lineTo(x0 + 3.2f * u, cy + 2.7f * u);
+        speaker.lineTo(x0 + 1.3f * u, cy + 1.1f * u);
+        speaker.lineTo(x0, cy + 1.1f * u);
         speaker.close();
-        c.drawPath(speaker, textPaint);
+        iconPaint.setPathEffect(new CornerPathEffect(0.4f * u));
+        c.drawPath(speaker, iconPaint);
 
-        int muted = percent == 0 ? 1 : 0;
-        arcPaint.setStrokeWidth(0.9f * u);
+        arcPaint.setShader(null);
         arcPaint.setStyle(Paint.Style.STROKE);
         arcPaint.setStrokeCap(Paint.Cap.ROUND);
-        // Wave arcs; the ones above the level stay dim.
-        drawWaveArc(c, cx, iconC, 1.9f * u, 4.0f * u, muted == 1 || percent > 0);
-        drawWaveArc(c, cx, iconC, 3.2f * u, 4.0f * u, muted == 1 || percent > 33);
-        drawWaveArc(c, cx, iconC, 4.5f * u, 4.0f * u, muted == 1 || percent > 66);
-
-        if (muted == 1) { // red slash over the speaker
-            arcPaint.setStrokeWidth(1.0f * u);
+        if (pct == 0) {
+            arcPaint.setStrokeWidth(0.7f * u);
             arcPaint.setColor(0xFFFF453A);
-            c.drawLine(cx - 3.6f * u, iconC + 3.6f * u, cx + 4.4f * u, iconC - 3.6f * u, arcPaint);
-            arcPaint.setColor(Color.WHITE);
+            c.drawLine(x0 - 0.2f * u, cy + 3.2f * u, x0 + 4.0f * u, cy - 3.2f * u, arcPaint);
+            return;
         }
+        arcPaint.setStrokeWidth(0.55f * u);
+        float ax = x0 + 3.4f * u;
+        float[] radii = {2.0f * u, 3.4f * u, 4.8f * u};
+        int[] thresholds = {0, 33, 66};
+        for (int i = 0; i < 3; i++) {
+            arcPaint.setColor(pct > thresholds[i] ? Color.WHITE : 0x33FFFFFF);
+            iconArc.set(ax - radii[i], cy - radii[i], ax + radii[i], cy + radii[i]);
+            c.drawArc(iconArc, -42, 84, false, arcPaint);
+        }
+    }
 
-        numPaint.setTextSize(h * 0.29f);
+    // ---- Style 1: big speaker glyph, number, caption ----
+    private void drawSpeaker(Canvas c, int w, int h) {
+        float cx = leftInset + (w - leftInset) / 2f;
+        drawSpeakerIcon(c, cx, h * 0.27f, h * 0.034f, percent);
+
+        numPaint.setTextSize(h * 0.26f);
         numPaint.setTextAlign(Paint.Align.CENTER);
-        String num = String.valueOf(percent);
-        c.drawText(num, cx, h * 0.82f + numPaint.getTextSize() * 0.3f, numPaint);
+        c.drawText(String.valueOf(percent), cx, h * 0.70f, numPaint);
+        numPaint.setTextAlign(Paint.Align.RIGHT); // restore the shared paint for the other styles
+
         pctPaint.setTextSize(h * 0.05f);
         pctPaint.setTextAlign(Paint.Align.CENTER);
-        c.drawText("MEDIA VOLUME", cx, h * 0.93f, pctPaint);
-        numPaint.setTextAlign(Paint.Align.RIGHT); // restore shared paints' align for the other styles
+        c.drawText("MEDIA VOLUME", cx, h * 0.88f, pctPaint);
         pctPaint.setTextAlign(Paint.Align.LEFT);
     }
 
-    private void drawWaveArc(Canvas c, float cx, float cy, float r, float span, boolean on) {
-        arcPaint.setColor(on ? Color.WHITE : 0x2EFFFFFF);
-        float s = cy - r, e = cy + r;
-        if (r < 2.4f * getHeight() * 0.02f) {
-            wave.reset();
-            wave.moveTo(cx, s);
-            wave.quadTo(cx + span, cy, cx, e);
-        } else {
-            wave.reset();
-            wave.moveTo(cx, s);
-            wave.quadTo(cx + span * 1.25f, cy, cx, e);
-        }
-        c.drawPath(wave, arcPaint);
-        arcPaint.setColor(Color.WHITE);
-    }
-
-    // ---- Style 2: bottom pill with a track (same motion language as the pager entrance) ----
+    // ---- Style 2: bottom pill: small glyph, gradient bar, number outside the bar ----
     private void drawPill(Canvas c, int w, int h) {
         float avail = w - leftInset;
         float pillW = Math.min(avail * 0.82f, h * 1.6f);
@@ -262,114 +258,90 @@ public class VolumeOverlayView extends View {
         float pad = pillH * 0.31f;
         float x0 = leftInset + (avail - pillW) / 2f;
         float y = h - pillH - h * 0.077f;
-
-        // entrance: slide up 12% of height during the show fade
-        float slide = (1f - getAlpha()) * h * 0.12f;
-        c.save();
-        c.translate(0, slide);
-
-        // small speaker glyph on the left
-        float u = pillH * 0.36f;
         float cy = y + pillH / 2f;
-        float gx = x0 + pad * 1.6f;
-        speaker.reset();
-        speaker.moveTo(gx - 1.2f * u, cy - 0.8f * u);
-        speaker.lineTo(gx - 0.35f * u, cy - 0.8f * u);
-        speaker.lineTo(gx + 0.5f * u, cy - 1.55f * u);
-        speaker.lineTo(gx + 0.5f * u, cy + 1.55f * u);
-        speaker.lineTo(gx - 0.35f * u, cy + 0.8f * u);
-        speaker.lineTo(gx - 1.2f * u, cy + 0.8f * u);
-        speaker.close();
-        if (percent == 0) { // muted: dim glyph
-            textPaint.setColor(0x99FFFFFF);
-            c.drawPath(speaker, textPaint);
-            textPaint.setColor(Color.WHITE);
-            arcPaint.setStyle(Paint.Style.STROKE);
-            arcPaint.setStrokeCap(Paint.Cap.ROUND);
-            arcPaint.setStrokeWidth(u * 0.28f);
-            arcPaint.setColor(0xFFFF453A);
-            c.drawLine(gx - 1.5f * u, cy + 1.5f * u, gx + 1.8f * u, cy - 1.5f * u, arcPaint);
-        } else {
-            c.drawPath(speaker, textPaint);
-            arcPaint.setStyle(Paint.Style.STROKE);
-            arcPaint.setStrokeCap(Paint.Cap.ROUND);
-            arcPaint.setStrokeWidth(u * 0.28f);
-            arcPaint.setColor(Color.WHITE);
-            wave.reset();
-            wave.moveTo(gx + 1.2f * u, cy - 0.6f * u);
-            wave.quadTo(gx + 1.8f * u, cy, gx + 1.2f * u, cy + 0.6f * u);
-            c.drawPath(wave, arcPaint);
-        }
 
-        float trackX = gx + 2.6f * u;
-        float trackR = pillH * 0.22f;
-        pillTrack.set(trackX, cy - trackR, x0 + pillW - pad, cy + trackR);
-        trackPaint.setColor(0x2EFFFFFF);
-        c.drawRoundRect(pillTrack, trackR, trackR, trackPaint);
-        float fillR = pillTrack.right - pillTrack.left - (1f - shownFraction) * pillTrack.width();
-        clip.reset();
-        clip.addRoundRect(pillTrack, trackR, trackR, Path.Direction.CW);
+        // entrance: slides up while the overlay fades in
         c.save();
-        c.clipPath(clip);
-        fillPaint.setColor(GREEN);
-        c.drawRect(pillTrack.left, pillTrack.top, pillTrack.left + fillR, pillTrack.bottom, fillPaint);
-        c.restore();
+        c.translate(0, (1f - getAlpha()) * h * 0.12f);
 
-        // value, right-aligned in a fixed slot so the pill does not shift
-        textPaint.setTextSize(pillH * 0.5f);
+        capsule.set(x0, y, x0 + pillW, y + pillH);
+        innerPaint.setColor(0xEB282A32);
+        c.drawRoundRect(capsule, pillH / 2f, pillH / 2f, innerPaint);
+        innerPaint.setColor(0x12FFFFFF); // restore for the capsule style
+        outlinePaint.setStrokeWidth(Math.max(2f, h * 0.004f));
+        outlinePaint.setColor(0x2EFFFFFF);
+        c.drawRoundRect(capsule, pillH / 2f, pillH / 2f, outlinePaint);
+        outlinePaint.setColor(0x8CFFFFFF);
+
+        float u = pillH * 0.095f;
+        drawSpeakerIcon(c, x0 + pad + 4.1f * u, cy, u, percent);
+
+        // Number gets its own right-aligned slot so it never overlaps the bar or shifts it.
+        textPaint.setTextSize(pillH * 0.46f);
         textPaint.setTextAlign(Paint.Align.RIGHT);
-        String num = String.valueOf(percent);
-        c.drawText(num, x0 + pillW - pad, cy + textPaint.getTextSize() * 0.36f, textPaint);
+        float numRight = x0 + pillW - pad * 1.2f;
+        float slotW = textPaint.measureText("100");
+        c.drawText(String.valueOf(percent), numRight, cy + textPaint.getTextSize() * 0.36f, textPaint);
         textPaint.setTextAlign(Paint.Align.LEFT);
 
-        c.restore(); // slide
+        float trackLeft = x0 + pad + 8.2f * u + pad * 0.9f;
+        float trackRight = numRight - slotW - pad * 0.9f;
+        float trackR = pillH * 0.12f;
+        pillTrack.set(trackLeft, cy - trackR, trackRight, cy + trackR);
+        trackPaint.setColor(0x2EFFFFFF);
+        c.drawRoundRect(pillTrack, trackR, trackR, trackPaint);
+
+        float fillRight = pillTrack.left + pillTrack.width() * shownFraction;
+        if (fillRight > pillTrack.left + 1f) {
+            // Same green as the liquid capsule, light to dark along the filled part.
+            fillPaint.setShader(new LinearGradient(pillTrack.left, 0, fillRight, 0,
+                    new int[]{0xFF5FE083, GREEN, 0xFF1F9B46}, new float[]{0f, 0.5f, 1f},
+                    Shader.TileMode.CLAMP));
+            c.save();
+            clip.reset();
+            clip.addRoundRect(pillTrack, trackR, trackR, Path.Direction.CW);
+            c.clipPath(clip);
+            c.drawRect(pillTrack.left, pillTrack.top, fillRight, pillTrack.bottom, fillPaint);
+            c.restore();
+        }
+        c.restore();
     }
 
-    // ---- Style 3: ring gauge with a gradient sweep ----
+    // ---- Style 3: ring gauge on a dark disc, sweep gradient from 12 o'clock ----
     private void drawRing(Canvas c, int w, int h) {
         float avail = w - leftInset;
         float cx = leftInset + avail / 2f;
         float cy = h / 2f;
         float d = Math.min(avail * 0.62f, h * 0.62f);
+        float stroke = d * 0.09f;
         ring.set(cx - d / 2f, cy - d / 2f, cx + d / 2f, cy + d / 2f);
 
-        float stroke = d * 0.09f;
+        // Opaque disc behind the ring so the page text underneath doesn't bleed through.
+        innerPaint.setColor(0xF20B0D12);
+        c.drawCircle(cx, cy, d / 2f + stroke * 0.9f, innerPaint);
+        innerPaint.setColor(0x12FFFFFF); // restore for the capsule style
+
         arcPaint.setStyle(Paint.Style.STROKE);
         arcPaint.setStrokeWidth(stroke);
         arcPaint.setStrokeCap(Paint.Cap.ROUND);
-        // background track
-        arcPaint.setColor(0x24FFFFFF);
+        arcPaint.setShader(null);
+        arcPaint.setColor(0x40FFFFFF);
         c.drawArc(ring, 0, 360, false, arcPaint);
-        // foreground sweep
         if (shownFraction > 0.01f) {
+            c.save();
+            c.rotate(-90, cx, cy); // sweep gradient starts at 3 o'clock; rotate so it starts at the top
             arcPaint.setShader(new SweepGradient(cx, cy,
                     new int[]{0xFF5AC8FA, GREEN}, null));
-            c.drawArc(ring, -90, 360 * shownFraction, false, arcPaint);
+            arcPaint.setColor(Color.WHITE); // fully opaque; colour comes from the shader
+            c.drawArc(ring, 0, 360 * shownFraction, false, arcPaint);
             arcPaint.setShader(null);
+            c.restore();
         }
 
-        // speaker glyph above the number
-        float u = d * 0.055f;
-        float iy = cy - d * 0.13f;
-        speaker.reset();
-        speaker.moveTo(cx - 1.6f * u, iy - 0.95f * u);
-        speaker.lineTo(cx - 0.5f * u, iy - 0.95f * u);
-        speaker.lineTo(cx + 0.5f * u, iy - 1.7f * u);
-        speaker.lineTo(cx + 0.5f * u, iy + 1.7f * u);
-        speaker.lineTo(cx - 0.5f * u, iy + 0.95f * u);
-        speaker.lineTo(cx - 1.6f * u, iy + 0.95f * u);
-        speaker.close();
-        c.drawPath(speaker, textPaint);
-        arcPaint.setStrokeWidth(u * 0.45f);
-        wave.reset();
-        wave.moveTo(cx + 1.2f * u, iy - 0.6f * u);
-        wave.quadTo(cx + 1.9f * u, iy, cx + 1.2f * u, iy + 0.6f * u);
-        c.drawPath(wave, arcPaint);
-
-        numPaint.setTextSize(d * 0.32f);
+        drawSpeakerIcon(c, cx, cy - d * 0.17f, d * 0.032f, percent);
+        numPaint.setTextSize(d * 0.30f);
         numPaint.setTextAlign(Paint.Align.CENTER);
-        String num = String.valueOf(percent);
-        c.drawText(num, cx, cy + d * 0.10f + numPaint.getTextSize() * 0.36f, numPaint);
+        c.drawText(String.valueOf(percent), cx, cy + d * 0.24f, numPaint);
         numPaint.setTextAlign(Paint.Align.RIGHT);
     }
 }
