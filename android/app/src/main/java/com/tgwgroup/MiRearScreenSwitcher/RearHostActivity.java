@@ -76,6 +76,7 @@ public class RearHostActivity extends Activity {
     // so it costs nothing and never wakes or fronts the rear when the pager is hidden.
     private VolumeOverlayView volumeOverlay;
     private boolean volumeReceiverRegistered = false;
+    private long lastVolumeWakeMs = 0;
     private final BroadcastReceiver volumeReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -83,6 +84,17 @@ public class RearHostActivity extends Activity {
             // all with alias 3; show() is idempotent so the duplicates are harmless.
             if (intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE_ALIAS", -1) != AudioManager.STREAM_MUSIC) return;
             if (volumeOverlay == null) return;
+            // Wake a dimmed rear so the overlay is seen; throttled since one press fires three events.
+            long now = android.os.SystemClock.uptimeMillis();
+            if (now - lastVolumeWakeMs > 1000) {
+                lastVolumeWakeMs = now;
+                try {
+                    ITaskService ts = RearHost.taskService();
+                    if (ts != null) ts.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                } catch (Throwable t) {
+                    Log.w(TAG, "Volume wake failed: " + t.getMessage());
+                }
+            }
             AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
             volumeOverlay.show(am.getStreamVolume(AudioManager.STREAM_MUSIC),
                     am.getStreamMaxVolume(AudioManager.STREAM_MUSIC));

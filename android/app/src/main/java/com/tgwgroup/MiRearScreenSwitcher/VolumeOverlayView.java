@@ -59,6 +59,7 @@ public class VolumeOverlayView extends View {
         wavePaint.setColor(0x47FFFFFF);
         numPaint.setColor(Color.WHITE);
         numPaint.setTypeface(Typeface.DEFAULT_BOLD);
+        numPaint.setTextAlign(Paint.Align.RIGHT);
         pctPaint.setColor(0xFFAABBCC);
         pctPaint.setTypeface(Typeface.DEFAULT_BOLD);
     }
@@ -122,8 +123,9 @@ public class VolumeOverlayView extends View {
         numPaint.setTextSize(h * 0.25f);
         pctPaint.setTextSize(h * 0.09f);
         String num = String.valueOf(percent);
-        float numW = numPaint.measureText(num), pctW = pctPaint.measureText("%");
-        float rowW = capW + gap + numW + pctW;
+        // Reserve the widest possible number so the capsule never shifts when the digit count changes.
+        float slotW = numPaint.measureText("000"), pctW = pctPaint.measureText("%");
+        float rowW = capW + gap + slotW + pctW;
         float x0 = leftInset + (w - leftInset - rowW) / 2f;
         capsule.set(x0, (h - capH) / 2f, x0 + capW, (h + capH) / 2f);
         float r = capW / 2f;
@@ -160,7 +162,8 @@ public class VolumeOverlayView extends View {
 
         float baseline = h / 2f + numPaint.getTextSize() * 0.36f;
         float tx = capsule.right + gap;
-        c.drawText(num, tx, baseline, numPaint);
-        c.drawText("%", tx + numW, baseline, pctPaint);
+        // Number is right-aligned in its fixed slot so the "%" stays put and short numbers grow toward the capsule.
+        c.drawText(num, tx + slotW, baseline, numPaint);
+        c.drawText("%", tx + slotW, baseline, pctPaint);
     }
 }
