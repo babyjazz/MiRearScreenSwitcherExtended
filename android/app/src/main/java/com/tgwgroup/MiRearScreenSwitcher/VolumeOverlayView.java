@@ -316,11 +316,6 @@ public class VolumeOverlayView extends View {
         float stroke = d * 0.09f;
         ring.set(cx - d / 2f, cy - d / 2f, cx + d / 2f, cy + d / 2f);
 
-        // Opaque disc behind the ring so the page text underneath doesn't bleed through.
-        innerPaint.setColor(0xF20B0D12);
-        c.drawCircle(cx, cy, d / 2f + stroke * 0.9f, innerPaint);
-        innerPaint.setColor(0x12FFFFFF); // restore for the capsule style
-
         arcPaint.setStyle(Paint.Style.STROKE);
         arcPaint.setStrokeWidth(stroke);
         arcPaint.setStrokeCap(Paint.Cap.ROUND);
