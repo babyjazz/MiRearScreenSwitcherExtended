@@ -116,6 +116,7 @@ class _HomePageState extends State<HomePage> {
 
   // Rear pager dots
   bool _pagerDotsVisible = false; // off by default
+  int _volumeOverlayStyle = 0; // 0..3: liquid capsule / speaker waves / bottom pill / ring gauge
 
   @override
   void initState() {
@@ -488,6 +489,8 @@ class _HomePageState extends State<HomePage> {
             prefs.getBool('notification_service_enabled') ??
             false; // V2.4: load the rear notification toggle
         _pagerDotsVisible = prefs.getBool('pager_dots_visible') ?? false;
+        _volumeOverlayStyle =
+            prefs.getInt('volume_overlay_style') ?? 0; // 0: liquid capsule
       });
 
       // Start the charging service (if enabled)
@@ -671,6 +674,20 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         _pagerDotsVisible = !enabled;
       });
+    }
+  }
+
+  // Volume overlay visual style; applies on the next volume press (native reads the pref in show()).
+  Future<void> _selectVolumeOverlayStyle(int style) async {
+    if (style == _volumeOverlayStyle) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('volume_overlay_style', style);
+      setState(() {
+        _volumeOverlayStyle = style;
+      });
+    } catch (e) {
+      print('Failed to set volume overlay style: $e');
     }
   }
 
@@ -1469,6 +1486,43 @@ class _HomePageState extends State<HomePage> {
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 12),
+                            const Divider(color: Colors.black26, height: 1),
+                            const SizedBox(height: 12),
+                            // Volume overlay style picker
+                            Row(
+                              children: [
+                                Text(
+                                  AppLocalizations.of(
+                                    context,
+                                  ).translate('volume_style_title'),
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                for (int s = 0; s < 4; s++) ...[
+                                  if (s > 0) const SizedBox(width: 8),
+                                  Expanded(
+                                    child: _VolumeStyleChip(
+                                      style: s,
+                                      selected: s == _volumeOverlayStyle,
+                                      label: AppLocalizations.of(
+                                        context,
+                                      ).translate('volume_style_$s'),
+                                      onTap: () =>
+                                          _selectVolumeOverlayStyle(s),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                             if (_chargingAlwaysOnEnabled) ...[
                               const SizedBox(height: 12),
                               Container(
@@ -1867,6 +1921,61 @@ class _GradientToggleState extends State<_GradientToggle> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// Volume overlay style picker chip: icon + label, highlighted when selected
+class _VolumeStyleChip extends StatelessWidget {
+  final int style;
+  final bool selected;
+  final String label;
+  final VoidCallback onTap;
+
+  const _VolumeStyleChip({
+    required this.style,
+    required this.selected,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const icons = [
+      Icons.water_drop_outlined, // 0: liquid capsule
+      Icons.volume_up_outlined, // 1: speaker waves
+      Icons.linear_scale_outlined, // 2: bottom pill
+      Icons.donut_large_outlined, // 3: ring gauge
+    ];
+    final color = selected ? const Color(0xFF34C759) : Colors.black45;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF34C759).withOpacity(0.15) : Colors.white.withOpacity(0.4),
+          borderRadius: BorderRadius.circular(_SquircleRadii.small),
+          border: Border.all(
+            color: selected ? const Color(0xFF34C759) : Colors.black26,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(icons[style], color: color, size: 22),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                color: selected ? const Color(0xFF34C759) : Colors.black54,
+              ),
+            ),
+          ],
         ),
       ),
     );

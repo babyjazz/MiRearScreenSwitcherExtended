@@ -1,7 +1,11 @@
 package com.tgwgroup.MiRearScreenSwitcher;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -67,6 +71,53 @@ public class RearHostActivity extends Activity {
     private boolean dragging = false;
     private boolean dragPossible = false;
     private float downX, downY;
+
+    // Volume indicator: the receiver only lives while the pager is visible (onStart..onStop),
+    // so it costs nothing and never wakes or fronts the rear when the pager is hidden.
+    private VolumeOverlayView volumeOverlay;
+    private boolean volumeReceiverRegistered = false;
+    private long lastVolumeWakeMs = 0;
+    private final BroadcastReceiver volumeReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            // Hidden broadcast, but HyperOS delivers it. One press fires three (stream types 3, 9, 10),
+            // all with alias 3; show() is idempotent so the duplicates are harmless.
+            if (intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE_ALIAS", -1) != AudioManager.STREAM_MUSIC) return;
+            if (volumeOverlay == null) return;
+            // Wake a dimmed rear so the overlay is seen; throttled since one press fires three events.
+            long now = android.os.SystemClock.uptimeMillis();
+            if (now - lastVolumeWakeMs > 1000) {
+                lastVolumeWakeMs = now;
+                try {
+                    ITaskService ts = RearHost.taskService();
+                    if (ts != null) ts.executeShellCommand("input -d 1 keyevent KEYCODE_WAKEUP");
+                } catch (Throwable t) {
+                    Log.w(TAG, "Volume wake failed: " + t.getMessage());
+                }
+            }
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            volumeOverlay.show(am.getStreamVolume(AudioManager.STREAM_MUSIC),
+                    am.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+        }
+    };
+
+    private void registerVolumeReceiver() {
+        if (volumeReceiverRegistered) return;
+        IntentFilter f = new IntentFilter("android.media.VOLUME_CHANGED_ACTION");
+        // Without RECEIVER_EXPORTED the OS silently drops this system broadcast on API 33+.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(volumeReceiver, f, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(volumeReceiver, f);
+        }
+        volumeReceiverRegistered = true;
+    }
+
+    private void unregisterVolumeReceiver() {
+        if (!volumeReceiverRegistered) return;
+        unregisterReceiver(volumeReceiver);
+        volumeReceiverRegistered = false;
+    }
 
     public RearPagerView getPagerView() { return pagerView; }
 
@@ -179,6 +230,7 @@ public class RearHostActivity extends Activity {
         super.onStart();
         boolean wasBackgrounded = !visible;
         visible = true;
+        registerVolumeReceiver();
         shownSince = System.currentTimeMillis();
         // Slide up from the bottom whenever the pager appears (cold launch, bring-front
         // after goHome, wake from rear sleep). Snap-back drags never stop/start, no replay.
@@ -210,6 +262,7 @@ public class RearHostActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
+        unregisterVolumeReceiver();
         visible = false;
         lastVisibleMs = System.currentTimeMillis() - shownSince;
         // Not finishing = swiped away / covered / rear slept; the task survives in the background
@@ -243,6 +296,7 @@ public class RearHostActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        unregisterVolumeReceiver();
         if (pagerView != null) pagerView.unbind();
         handler.removeCallbacksAndMessages(null);
         Log.d(TAG, "destroy onRear=" + onRear + " finishedByUs=" + finishedByUs);
@@ -436,6 +490,11 @@ public class RearHostActivity extends Activity {
         rootFrame = new FrameLayout(this);
         pagerView = new RearPagerView(this, rootFrame);
         rootFrame.addView(pagerView.getView());
+        // Added last so it draws above every page; invisible until a volume change.
+        RearDisplayHelper.RearDisplayInfo displayInfo = DisplayInfoCache.getInstance().getCachedInfo();
+        volumeOverlay = new VolumeOverlayView(this, displayInfo.hasCutout() ? displayInfo.cutout.left : 0);
+        rootFrame.addView(volumeOverlay, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(rootFrame);
         onRear = true;
         onFeatureChanged();

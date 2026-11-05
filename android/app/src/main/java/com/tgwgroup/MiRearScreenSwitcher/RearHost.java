@@ -66,9 +66,8 @@ public class RearHost {
         boolean ok;
         if (host != null) {
             ok = true;
-            if (type == RearStack.Type.NOTIFICATION) {
-                exec(ts, WAKE_CMD);
-            }
+            // Any real change (noti, song/play state, plug-in) wakes a dimmed rear so the update is seen.
+            exec(ts, WAKE_CMD);
             if (RearHostActivity.isVisible()) {
                 // Pager already front: update pages immediately.
                 host.onFeatureChanged();
